@@ -1,0 +1,177 @@
+openapi_sibling: ../openapi.yaml
+perf_budget_sibling: ../perf-budget.yaml
+# TicketForge deployment contract — topology
+#
+# What has to be deployed, and what each workload needs in order to work. This
+# file says nothing about *how*: it is satisfied by a Helm chart, a Terraform
+# configuration, a directory of plain manifests or a Compose file, and the
+# grader holds all of them to the same bar. The bar itself is ./policy.yaml.
+#
+# Nothing here is invented. The ports, the health endpoint and the environment
+# variable names are the ones the product already uses — see the root
+# docker-compose.yml, any backend's Dockerfile and ../openapi.yaml.
+
+version: 1
+
+# ------------------------------------------------------------------ interface
+render:
+  # `make run` renders into this directory and exits. See ./README.md.
+  dir_env: RENDER_DIR
+  default_dir: ./rendered
+  index: index.json
+  artifact_kinds: [kubernetes, github-workflow, compose]
+
+# How the grader knows which rendered workload is which. A Kubernetes workload
+# declares its role in this label; a Compose service declares it by its service
+# name. The label is the standard one, not a TicketForge invention.
+role_label: app.kubernetes.io/component
+
+# ------------------------------------------------------------------ workloads
+workloads:
+  - role: api
+    description: >
+      The TicketForge HTTP API. One of the backend slots, built from its own
+      Dockerfile. Every route in ../openapi.yaml is served by this workload.
+    type: long-running
+    http_port: 3000
+    port_env: PORT
+    health_path: /health
+    # GET /health is the readiness endpoint in ../openapi.yaml. It is NOT "/" and
+    # it is NOT "/healthz": a probe pointing at a path that happens to return 200
+    # reports a process that is listening, not an API that can serve traffic.
+    readiness:
+      path: /health
+      required: true
+    liveness:
+      required: true
+    min_replicas: 2
+    # Peak RSS under the concurrency suite is budgeted in
+    # ../perf-budget.yaml (runtime.max_rss_mb). A memory limit below that number
+    # is a deployment that OOM-kills itself the first time it is loaded.
+    memory_limit_at_least: perf-budget:runtime.max_rss_mb
+    config:
+      - { name: DATABASE_URL,      from: secret, required: true }
+      - { name: JWT_SECRET,        from: secret, required: true }
+      - { name: REDIS_URL,         from: any,    required: true }
+      - { name: HOLD_TTL_SECONDS,  from: config, required: true }
+      - { name: PORT,              from: config, required: true }
+
+  - role: web
+    description: >
+      The built web app from a slots/frontend-developer/* slot, served as static files. It owns
+      no database and talks only to the API through the ingress.
+    type: long-running
+    http_port: 8080
+    health_path: /
+    readiness:
+      path: /
+      required: true
+    liveness:
+      required: true
+    min_replicas: 2
+    config: []
+
+  - role: hold-expiry-worker
+    description: >
+      The sweeper that expires holds whose TTL has passed, returns their seats to
+      the pool and emits one `hold.expired` outbox event per hold. See
+      ../scenarios/T2-holds.md and the data family's q4_seat_hold_history.
+    type: long-running
+    # A SINGLETON, and the one piece of this topology where the replica count is
+    # a correctness property rather than a capacity decision. Two sweepers racing
+    # over the same expired hold either emit `hold.expired` twice — which
+    # double-counts in every report built on the outbox — or release a seat a
+    # second time after a buyer has already re-held it. A rolling update of a
+    # 1-replica Deployment runs two pods at once by default, so "replicas: 1" on
+    # its own is not enough: see DEP-015.
+    singleton: true
+    exactly_replicas: 1
+    rollout:
+      # Satisfied by `strategy.type: Recreate`, or by a RollingUpdate with
+      # maxSurge 0, or by any mechanism that provably admits one worker at a
+      # time (a lease, an advisory lock) declared in the workload's annotations
+      # under `ticketforge.io/singleton-mechanism`.
+      must_not_overlap: true
+    http_port: null
+    readiness:
+      required: false
+    liveness:
+      required: true
+    config:
+      - { name: DATABASE_URL,      from: secret, required: true }
+      # Must agree with the API's value. A sweeper on a shorter TTL than the API
+      # advertises kills holds while the buyer is still inside the countdown the
+      # API promised them.
+      - { name: HOLD_TTL_SECONDS,  from: config, required: true, same_as: api }
+
+  - role: migrate
+    description: >
+      Loads ../schema.sql and runs to completion before the API rolls. Not a
+      server: a one-shot job.
+    type: job
+    restart_policy: [Never, OnFailure]
+    backoff_limit_required: true
+    config:
+      - { name: DATABASE_URL, from: secret, required: true }
+
+# --------------------------------------------------------------- networking
+networking:
+  # Only the ingress is reachable from outside the cluster. Everything else is
+  # cluster-internal, including the API: the browser reaches it through the
+  # ingress, never through a service of its own.
+  public_entrypoint: ingress
+  internal_service_type: ClusterIP
+  ingress_routes:
+    - { host_var: web_host, path: /,     role: web }
+    - { host_var: api_host, path: /,     role: api }
+  default_deny_ingress_required: true
+
+# ----------------------------------------------------------------- secrets
+secrets:
+  # Config values that are credentials. The rendered output must reference them,
+  # never carry them: the Secret objects themselves are created out of band (by
+  # the platform team, a sealed-secrets controller, an external-secrets operator
+  # — the implementation's choice) and the rendered configuration names them.
+  sensitive_env:
+    - DATABASE_URL
+    - JWT_SECRET
+    - POSTGRES_PASSWORD
+    - STRIPE_SECRET_KEY
+  rendered_material_forbidden: true
+
+# --------------------------------------------------------------------- images
+images:
+  # Every container image is pinned. `latest` and a bare repository name are both
+  # "whatever the registry had when the node pulled", which is the opposite of a
+  # reproducible deployment and makes a rollback impossible.
+  require_tag: true
+  forbid_tags: [latest, master, main, edge, dev, stable]
+  # A digest is better than a tag and is accepted in place of one.
+  digest_satisfies_pinning: true
+
+# ------------------------------------------------------------------ resources
+resources:
+  require: [requests.cpu, requests.memory, limits.cpu, limits.memory]
+  applies_to: every container in every workload
+
+# ------------------------------------------------------------------------- ci
+ci:
+  # The deployment pipeline is part of the deliverable and is graded by being
+  # parsed, not by being present. A workflow that renders the configuration and
+  # then reports success without running the suite is worse than no workflow: it
+  # is a green check mark over an unvalidated deployment.
+  workflow_name: deploy
+  triggers_required: [pull_request]
+  must_invoke:
+    - id: render
+      # A step that renders the configuration, i.e. runs `make run` (or the
+      # equivalent) in the slot.
+      matches: ["make run", "make -C", "helm template", "terraform apply"]
+    - id: conformance
+      # A step that really runs this family's conformance suite. `echo`,
+      # `|| true`, `continue-on-error: true` and `if: false` do not count.
+      matches: ["conformance/infra"]
+  # Every `uses:` reference carries a version tag (`@v4`, `@v4.1.7`) or a full
+  # commit sha. A branch ref is a third party deciding what runs in our pipeline.
+  actions_ref_pattern: '^v[0-9][A-Za-z0-9._-]*$|^[0-9a-f]{40}$'
+  forbid_floating_action_refs: [master, main, latest, HEAD]

@@ -1,0 +1,11 @@
+# A ticket admitted at the OTHER gate arrives as a replay. The device has never
+# seen it, so it must absorb it — the person is already inside.
+REPLAY tkt_arena_B05-07 1788285500
+SCAN tkt_arena_B05-07|event_arena_2000|seat_arena_B05-07|1788282000|1788300000|434e8a4aa511c0fe
+#   -> 5 tkt_arena_B05-07 REFUSE DUPLICATE
+SCAN tkt_arena_A01-04|event_arena_2000|seat_arena_A01-04|1788282000|1788300000|e7210c7049ae884e
+#   -> 6 tkt_arena_A01-04 ADMIT OK
+LINK up
+TIME 1788285800
+SYNC
+#   -> SYNC 3 0      the duplicate queued at the end of segment 1 is still here

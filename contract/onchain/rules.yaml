@@ -1,0 +1,378 @@
+# TicketForge on-chain contract — rules
+#
+# The rules asserted over a DEPLOYED on-chain primary sale by
+# conformance/blockchain. Each rule is one sentence a reviewer could say out
+# loud in a pull request, plus why they would say it. The grader's test names
+# quote `assert`, so a failure reads like the review comment it stands in for.
+# This file is modelled on contract/deploy/policy.yaml, which is the same idea
+# for the infra family.
+#
+# Every rule here is part of the assessment. Many are checked automatically by
+# conformance/blockchain/, which every candidate receives and can run; the others are assessed
+# at review. All of them are written down in full, so nobody is asked to guess:
+# a green visible suite means the checked rules pass, not that every rule does.
+#
+# `enforced` says how far the chain can actually hold the rule up. A rule marked
+# `enforced: partial` is one this contract can state and the grader can check at
+# its own boundary, but which an actor can still work around outside the
+# contract. Saying so here is the point: an anti-scalping rule that is sold as
+# absolute is a worse rule than one whose edge is written down.
+
+version: 1
+
+severities:
+  blocker: Money moves wrongly, or a seat is sold twice. A reviewer blocks the PR.
+  major: Ships, then shows up in a reconciliation.
+  minor: Hygiene. Cheap to fix, costly in aggregate.
+
+# ---------------------------------------------------------------- denomination
+#
+# There is no oracle, no stablecoin and no bridge in this exercise, and inventing
+# one would be inventing a second money model for a product that already has
+# exactly one. So the local chain's native unit stands in for the event
+# currency's MINOR unit, one for one: a seat priced `price_cents: 2500` in
+# contract/seed/seats.json costs 2500 wei.
+#
+# That is a modelling decision and it is deliberate. It means every figure on
+# chain is the same integer a candidate can read out of contract/seed/ and
+# contract/openapi.yaml, the fee formula is reproduced byte for byte with no
+# scaling factor anywhere, and there is no place for a float to appear even by
+# accident. Scaling to 10^18 would add a multiplier to every assertion and
+# measure nothing.
+denomination:
+  native_unit_equals: one minor unit of the event's currency (one cent)
+  float_arithmetic: forbidden anywhere, on chain or in the deployment script
+
+# -------------------------------------------------------------------- identity
+#
+# Seat and event identity come from contract/seed/, so this family shares the
+# product's fixtures with every other family rather than inventing a parallel
+# world. The on-chain id of a seat is the keccak-256 hash of its seeded seat id
+# as ASCII bytes:
+#
+#   token_id = uint256(keccak256("seat_club_A01-07"))
+#
+# and an event id is the keccak-256 hash of its seeded event id. Hashing rather
+# than numbering is what makes the mapping checkable from outside: the grader
+# recomputes it from contract/seed/seats.json and never asks the implementation
+# what it thinks a seat is called.
+identity:
+  token_id: uint256(keccak256(utf8_bytes(seat.id)))
+  event_id: bytes32(keccak256(utf8_bytes(event.id)))
+  seat_source: contract/seed/seats.json
+  event_source: contract/seed/seed.json
+
+# The seeded events this family sells on chain, and the ones it must not.
+#
+# `event_arena_2000` is published and in the product, and it is NOT on chain:
+# registering 2000 seats is a gas-budget exercise, not a correctness one, and it
+# would add minutes to every grading run without asserting anything the two
+# 100-seat events do not already assert. `event_draft` and `event_cancelled` are
+# excluded because the product does not sell them.
+events:
+  - seed_id: event_club_100
+    organizer_account: 1        # see `accounts` below
+    sections: { A: 2500 }
+    seat_count: 100
+    wallet_cap: 4
+    resale_cap_bps: 11000       # 110% of face value
+    discounts: { SAVE10: 10 }
+  - seed_id: event_jazz_eur
+    organizer_account: 2
+    sections: { A: 4000, B: 3500 }
+    seat_count: 100
+    wallet_cap: 2
+    resale_cap_bps: 10000       # 100% of face value — face value or below only
+    discounts: {}
+not_on_chain: [event_arena_2000, event_draft, event_cancelled]
+
+# The sale window, as absolute instants.
+#
+# Written down rather than derived from the deploy clock so that a replayed
+# deployment is identical to the original one, and so the grader can assert the
+# registered window without reading its own clock. Both seeded events share it.
+sale_window:
+  opens_at: "2025-01-01T00:00:00Z"
+  closes_at: "2035-01-01T00:00:00Z"
+
+# Role addresses, as indices into the standard local-chain mnemonic
+# ("test test test test test test test test test test test junk").
+#
+# Deterministic, public, and worth nothing: these keys are in every Hardhat and
+# Foundry installation on earth. That is exactly why they are the right ones
+# here. Nothing in this family reads a private key from the environment, and a
+# slot that needs one is misconfigured rather than secure.
+accounts:
+  mnemonic: test test test test test test test test test test test junk
+  platform: 0
+  organizers: { user_org_1: 1, user_org_2: 2 }
+  buyers: [3, 4, 5, 6, 7, 8, 9]
+
+rules:
+  # ------------------------------------------------------------- deployment
+  - id: ONC-001
+    group: deployment
+    severity: blocker
+    assert: >
+      The declared deployment file lists every transaction the deployer sent, in
+      order; replaying it from a fresh local chain with nonce 0 reproduces every
+      declared contract address exactly, and the runtime code at each address
+      matches the declared code hash.
+    because: >
+      This is the whole interface between an implementation and its grade. The
+      grader never imports the implementation's source, build config or
+      framework — it replays recorded calldata onto a chain it owns, the same
+      way conformance/data compares result files and conformance/infra reads
+      rendered manifests. A CREATE address is a pure function of (deployer,
+      nonce), so address equality proves the declared bytecode really is what
+      produced the declared addresses, and that nothing undeclared happened in
+      between.
+
+  - id: ONC-002
+    group: deployment
+    severity: blocker
+    assert: >
+      The deployment requires no network: no RPC URL, no chain fork, no faucet,
+      and no private key read from the environment. The declared chain id is the
+      local development chain's.
+    because: >
+      A grade that depends on a testnet depends on whether that testnet is up,
+      whether the faucet is rate-limiting today, and whether the key in the
+      environment still has funds. None of those measure the candidate.
+
+  - id: ONC-003
+    group: deployment
+    severity: major
+    assert: >
+      Every seeded event in `events` is registered with its organizer, its
+      seeded per-section prices, its declared sale window, wallet cap and resale
+      cap; all of its seats are registered against it; and no event in
+      `not_on_chain` is registered.
+    because: >
+      Seat and event identity come from contract/seed/ so that this family
+      grades the same product as every other one. An implementation that invents
+      its own event is internally consistent and unverifiable.
+
+  # ------------------------------------------------------------------ token
+  - id: ONC-010
+    group: token
+    severity: blocker
+    assert: >
+      The ticket is an ERC-721 token, one token per seat, whose token id is
+      keccak-256 of the seeded seat id, and which only the primary sale contract
+      can mint.
+    because: >
+      One seat, one token is the product's inventory rule expressed on chain.
+      ERC-721 rather than a hand-rolled registry because every wallet, indexer
+      and marketplace already knows how to read it — and because a hand-rolled
+      transfer function is where the bugs are.
+
+  - id: ONC-011
+    group: token
+    severity: blocker
+    assert: >
+      A seat can be minted at most once. A second purchase of a minted seat is
+      refused, whatever the ordering of calls.
+    because: >
+      This is the double-booking problem with no database to fall back on.
+      Off chain the defence is a row lock; on chain it is that the token already
+      exists. Both have to be true.
+
+  - id: ONC-012
+    group: token
+    severity: major
+    assert: >
+      Total minted for an event never exceeds that event's registered seat
+      count, and a seat may only be bought through the event it belongs to.
+    because: >
+      An organiser who can mint a 101st ticket for a 100-seat room has sold
+      somebody a seat that does not exist, and will find out at the door.
+
+  # ------------------------------------------------------------ primary sale
+  - id: ONC-020
+    group: primary-sale
+    severity: blocker
+    assert: >
+      The price of a seat on the primary sale is its section's registered price,
+      and the amount the buyer must send is
+      `subtotal - discount + fee`, where `discount = floor(subtotal * percent_off / 100)`
+      and `fee = floor((subtotal - discount) * FEE_PERCENT / 100) + FEE_FIXED_CENTS`.
+      An over- or under-payment is refused rather than kept or refunded.
+    because: >
+      This is the product's published money rule, not a new one. It is
+      `contract/openapi.yaml`'s order semantics — `net_cents = gross_cents -
+      discounts_cents + fees_cents`, with the fee charged on the post-discount
+      subtotal — and it is written out in `contract/schema.sql` and
+      `contract/scenarios/T3-orders-money.md`. There is exactly one fee
+      definition in this product and this is it.
+    cites:
+      - contract/openapi.yaml#/components/schemas/RevenueReport
+      - contract/schema.sql (the money comment above the orders table)
+      - contract/scenarios/T3-orders-money.md
+
+  - id: ONC-021
+    group: primary-sale
+    severity: major
+    assert: >
+      A wallet can hold at most `wallet_cap` primary-sale tickets per event. A
+      purchase that would take a wallet over the cap is refused in full — no
+      partial fill.
+    because: >
+      The cap is the only thing standing between a general-admission drop and
+      one script holding the room. It has to be checked against the count the
+      purchase would produce, not the count the wallet already has, or a wallet
+      one below the cap buys as many as it likes in a single call.
+
+  - id: ONC-022
+    group: primary-sale
+    severity: major
+    assert: >
+      A primary purchase outside the registered sale window — before it opens or
+      at or after it closes — is refused.
+    because: >
+      The window is the organiser's announced on-sale time. A sale that is
+      quietly already open sells the good seats to whoever was watching the
+      chain, which is the complaint that the whole exercise exists to answer.
+
+  - id: ONC-023
+    group: primary-sale
+    severity: minor
+    assert: >
+      An unknown or inactive discount code is refused rather than silently
+      treated as no discount.
+    because: >
+      Silently ignoring a code charges the buyer full price after showing them a
+      discount, which is the off-chain product's `DISCOUNT_INVALID` by another
+      route. A refusal is a message the buyer can act on.
+
+  # ----------------------------------------------------------------- resale
+  - id: ONC-030
+    group: resale
+    severity: blocker
+    enforced: partial
+    assert: >
+      A ticket may be transferred freely, but a RESALE listed through the
+      contract at more than `resale_cap_bps / 10000` of the price actually paid
+      for that seat on the primary sale is refused.
+    because: >
+      This is the anti-scalping rule organisers ask for, and it is the reason to
+      put a ticket on chain at all: the cap travels with the token instead of
+      living in one marketplace's terms of service.
+    limitation: >
+      The chain can only price a sale it is party to. Two wallets can still
+      transfer a ticket and settle in cash, or through a marketplace that takes
+      payment somewhere else, and no on-chain rule can see that price. What this
+      rule buys is that the contract's own market cannot be the venue for it,
+      and that a priced resale which does go through the contract is capped.
+      Enforcing more than that needs soul-binding or a transfer whitelist, and
+      both break the resale the organiser actually wants.
+
+  - id: ONC-031
+    group: resale
+    severity: major
+    assert: >
+      Resale proceeds are credited to the seller as a withdrawable balance and
+      never pushed to them inside the buyer's transaction.
+    because: >
+      A push payment hands control of the buyer's transaction to the seller's
+      contract. Pull payments are the reason a hostile seller cannot make
+      somebody else's purchase revert, or re-enter it.
+
+  # ------------------------------------------------------------- settlement
+  - id: ONC-040
+    group: settlement
+    severity: blocker
+    assert: >
+      A primary purchase credits `subtotal - discount` to the event's organizer
+      and the fee to the platform, and nothing else.
+    because: >
+      `gross - discounts` is what the organiser is owed and the fee is what the
+      platform earned. This is the same split the revenue report publishes, so
+      an organiser can reconcile a withdrawal against a report they already get.
+
+  - id: ONC-041
+    group: settlement
+    severity: blocker
+    assert: >
+      Only the event's registered organizer can withdraw that event's proceeds;
+      only an account holding the platform role can withdraw platform fees or
+      change platform parameters.
+    because: >
+      Withdrawal is the one call in the system that removes money from it. An
+      organiser who can withdraw a neighbouring event's proceeds is not a bug
+      report, it is an incident.
+
+  - id: ONC-042
+    group: settlement
+    severity: blocker
+    assert: >
+      The sum of every withdrawable balance — organizer proceeds, platform
+      proceeds and seller proceeds — never exceeds the contract's own balance,
+      after any sequence of operations.
+    because: >
+      The moment that sum exceeds the balance, somebody's withdrawal is going to
+      fail and it will be whoever asks last. Solvency is the invariant; a
+      balance check on a single happy path is not.
+
+  - id: ONC-043
+    group: settlement
+    severity: blocker
+    assert: >
+      A withdrawal zeroes the balance it is paying out BEFORE making the
+      external call, so a re-entrant recipient sees nothing left to take.
+    because: >
+      Checks-effects-interactions, and the reason it is a rule rather than a
+      preference: a recipient contract's `receive()` runs inside the withdrawal,
+      and if the balance is still on the books at that moment it can be
+      withdrawn again, and again, until the contract is empty — including the
+      money that belonged to a different event's organiser.
+
+  # ------------------------------------------------------------ correctness
+  # Assessed at review, not by the visible suite. Each one is the strict
+  # version of a visible rule.
+  - id: ONC-050
+    group: resale
+    severity: blocker
+    assert: >
+      The resale cap is measured against the price actually PAID for that seat
+      on the primary sale, and the boundary is inclusive: a listing at exactly
+      the cap is allowed and a listing one unit above it is refused.
+    because: >
+      ONC-030 is satisfied by refusing something. It is still satisfied when the
+      cap is computed against the event's cheapest section, or against the
+      post-discount total, or against the listing price itself — any of which
+      makes the comparison either permanently true or permanently false while
+      the function still has a `require` in it and still reverts for a big
+      enough number. Measuring from the wrong base is how a 110% cap becomes a
+      1000% one, and the ticket for it reads "a fan saw a ticket resold at ten
+      times face value".
+
+  - id: ONC-051
+    group: settlement
+    severity: blocker
+    assert: >
+      The sum of every withdrawable balance EQUALS the contract's balance
+      exactly, after any sequence of purchases, resales and withdrawals. No unit
+      is stranded and none is credited twice.
+    because: >
+      ONC-042's inequality catches over-crediting, which is the one that loses
+      money. It does not catch under-crediting, which is money that arrives and
+      is then owed to nobody — the organiser is short, the platform is short,
+      the contract's balance says the funds are there, and no withdrawal will
+      ever move them. That is the shape of "Dana cannot reconcile settlement",
+      and it passes every per-call assertion.
+
+  - id: ONC-052
+    group: settlement
+    severity: blocker
+    assert: >
+      A withdrawal to a recipient that re-enters it pays out the recipient's
+      balance exactly once in total, and the contract's balance never falls
+      below the sum of the balances still owed to everybody else.
+    because: >
+      ONC-043 is a statement about the order of two lines, and a reviewer reads
+      it as a style preference. This is the same rule with a contract that
+      actually calls back: the grader registers an event of its own with a
+      re-entrant organizer and lets it try. Either the first withdrawal is the
+      only one that pays, or a second event's organiser is going to find their
+      proceeds gone. There is no third outcome and no judgement involved.

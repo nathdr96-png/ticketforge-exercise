@@ -1,0 +1,277 @@
+# TicketForge deployment contract — policy
+#
+# The rules asserted over the RENDERED configuration by conformance/infra. Each
+# rule is one sentence a reviewer could say out loud in a pull request, plus why
+# they would say it. The grader's test names quote `assert`, so a failure in CI
+# reads like the review comment it stands in for.
+#
+# Every rule here is part of the assessment. Many are checked automatically by
+# conformance/infra/, which every candidate receives and can run; the others are assessed
+# at review. All of them are written down in full, so nobody is asked to guess:
+# a green visible suite means the checked rules pass, not that every rule does.
+
+version: 1
+
+severities:
+  blocker: Would be reverted in production. A reviewer blocks the PR.
+  major: Ships, then wakes somebody up.
+  minor: Hygiene. Cheap to fix, costly in aggregate.
+
+rules:
+  # ------------------------------------------------------------- validity
+  - id: DEP-001
+    group: validity
+    severity: blocker
+    assert: >
+      The render directory contains a well-formed index.json declaring at least
+      one artifact, every declared path exists, and every declared kind is one
+      the contract defines.
+    because: >
+      The rendered artifact set is the entire interface between an
+      implementation and its grade. A missing or mistyped entry would otherwise
+      mean half a deployment was graded and called green.
+
+  - id: DEP-002
+    group: validity
+    severity: blocker
+    assert: >
+      Every declared artifact parses as YAML or JSON, and every Kubernetes
+      document has apiVersion, kind and metadata.name.
+    because: >
+      Unparseable configuration is not a deployment. This is the cheapest check
+      in the suite and it is the one a templating mistake trips first.
+
+  - id: DEP-003
+    group: validity
+    severity: blocker
+    assert: >
+      Every rendered Kubernetes document validates against the strict JSON
+      schema for its apiVersion and kind.
+    because: >
+      Strict validation rejects fields that are not in the schema, which is how
+      `readinessProb`, a probe indented under the wrong parent and a quoted
+      `replicas: "2"` are caught. A cluster would reject all three; a human
+      reviewer would catch none of them.
+    tool: kubeconform --strict, against the schemas vendored in conformance/infra/schemas/
+
+  # ------------------------------------------------------------- topology
+  - id: DEP-010
+    group: topology
+    severity: blocker
+    assert: >
+      Every workload role in topology.yaml is rendered exactly once, identified
+      by the contract's role label, and no required configuration value is
+      missing from it.
+    because: >
+      A deployment that is missing the sweeper looks healthy in every dashboard
+      and silently stops returning expired seats to sale.
+
+  - id: DEP-011
+    group: supply-chain
+    severity: major
+    assert: >
+      Every container image is pinned: it carries an explicit tag that is not in
+      the contract's forbidden list, or a digest.
+    because: >
+      `:latest` means two pods of the same Deployment can be running different
+      code, a node replacement can change the version nobody asked to change,
+      and there is no version to roll back to.
+
+  - id: DEP-012
+    group: capacity
+    severity: major
+    assert: >
+      Every container declares CPU and memory requests and limits.
+    because: >
+      Without requests the scheduler is guessing; without limits one workload's
+      leak evicts its neighbours. On this topology, an unlimited API is what
+      takes the sweeper down with it.
+
+  - id: DEP-013
+    group: health
+    severity: blocker
+    assert: >
+      Each workload that declares a readiness path has a readiness probe whose
+      HTTP path is exactly that path and whose port is the container's own HTTP
+      port; each workload the contract requires a liveness probe for has one.
+    because: >
+      A probe on the wrong path or the wrong port is worse than no probe. It
+      either reports ready before the API can serve — so a rollout sends traffic
+      into a process that is still migrating — or it reports unready forever and
+      the rollout never completes.
+
+  - id: DEP-014
+    group: capacity
+    severity: major
+    assert: >
+      Every workload with a declared min_replicas runs at least that many.
+    because: >
+      One replica means every deploy and every node drain is an outage. For the
+      API that is the whole product; for the web app it is the storefront.
+
+  - id: DEP-015
+    group: correctness
+    severity: blocker
+    assert: >
+      The hold-expiry worker runs exactly one replica AND cannot transiently run
+      two during a rollout — `strategy.type: Recreate`, a RollingUpdate with
+      maxSurge 0, or a declared single-admission mechanism in the
+      `ticketforge.io/singleton-mechanism` annotation.
+    because: >
+      This is the one rule in this file that is a product invariant rather than
+      an operations preference. Two sweepers racing the same expired hold emit
+      `hold.expired` twice — which double-counts in every report built on the
+      outbox, including the data family's q4 — or release a seat a second time
+      after a buyer has re-held it, which oversells. `replicas: 1` alone does
+      not get you there: a default RollingUpdate brings the new pod up before
+      the old one goes down, so every deploy is a window with two sweepers in it.
+
+  - id: DEP-016
+    group: secrets
+    severity: blocker
+    assert: >
+      Every environment value the contract marks sensitive arrives from a secret
+      reference. A literal value for one of those names is a failure.
+    because: >
+      A connection string pasted into a manifest is in the repository, in every
+      clone of it, in the CI logs that print the diff and in the output of
+      `kubectl get deploy -o yaml` for anyone with read access. Rotating it means
+      a commit.
+
+  - id: DEP-017
+    group: secrets
+    severity: blocker
+    assert: >
+      No rendered artifact contains a credential literal: no password in a URI,
+      no base64 secret payload, no API key, no private key block.
+    because: >
+      DEP-016 checks the place credentials are supposed to come from. This one
+      checks everywhere else — an annotation, a comment, a ConfigMap, a CI
+      environment block — because that is where the one that leaks always is.
+
+  - id: DEP-018
+    group: networking
+    severity: major
+    assert: >
+      Every Service is ClusterIP, each Service's target port resolves to a port
+      the selected container actually declares, and the only externally reachable
+      object is the Ingress.
+    because: >
+      A LoadBalancer or NodePort on the API is a second, unprotected front door
+      that bypasses the ingress and whatever sits in front of it. A target port
+      that resolves to nothing is a Service that silently routes to no endpoints.
+
+  - id: DEP-019
+    group: networking
+    severity: blocker
+    assert: >
+      A default-deny ingress NetworkPolicy selects every pod in the namespace,
+      no policy both selects every pod and permits all ingress, and the API is
+      reachable by an explicit allow rule rather than by default.
+    because: >
+      Without a default-deny baseline, any compromised pod in the namespace can
+      talk straight to Postgres. A policy that selects everything and allows
+      everything is the shape this mistake takes when somebody needs to unblock
+      a deploy at 18:00 and never comes back to it.
+
+  - id: DEP-020
+    group: lifecycle
+    severity: major
+    assert: >
+      A migration job exists, its restart policy is Never or OnFailure, and it
+      declares a backoff limit.
+    because: >
+      The default restart policy for a bare pod retries forever. A migration
+      that fails halfway and retries forever holds locks against a live database
+      and takes the API with it.
+
+  # ------------------------------------------------------------------- ci
+  - id: DEP-030
+    group: ci
+    severity: blocker
+    assert: >
+      The deployment workflow has a step that renders the configuration and a
+      step that really invokes conformance/infra — a command that runs the
+      suite, not a command that prints that it did.
+    because: >
+      The point of a pipeline is that a bad change cannot reach production. A job
+      that echoes success is a green check mark over an unvalidated deployment,
+      and it is indistinguishable from a working pipeline in every view except
+      the log.
+
+  - id: DEP-031
+    group: ci
+    severity: minor
+    assert: >
+      Every `uses:` reference in the workflow is pinned to a version tag or a
+      commit sha, never to a branch.
+    because: >
+      `uses: foo/bar@master` is a third party deciding what runs with our
+      deployment credentials, whenever they feel like it.
+
+  - id: DEP-032
+    group: ci
+    severity: major
+    assert: >
+      The workflow runs on pull_request.
+    because: >
+      Validation that runs only after merge tells you what you have already
+      shipped.
+
+  # ------------------------------------------------------------ correctness
+  # Assessed at review, not by the visible suite. Each one is the strict
+  # version of a visible rule.
+  - id: DEP-040
+    group: capacity
+    severity: major
+    assert: >
+      The API's memory limit is at least contract/perf-budget.yaml's
+      runtime.max_rss_mb, and its CPU limit is at least its CPU request.
+    because: >
+      DEP-012 is satisfied by `limits: {memory: 64Mi}`, which is a declared
+      limit and also an API that OOM-kills on the first page of the seat map.
+      The budget for peak RSS under the concurrency suite is already written
+      down in the contract; a limit below it is a deployment that cannot meet a
+      number the product has already committed to. A CPU limit below the request
+      is rejected by the scheduler outright.
+
+  - id: DEP-041
+    group: correctness
+    severity: blocker
+    assert: >
+      HOLD_TTL_SECONDS is present on both the API and the hold-expiry worker and
+      the two values are identical.
+    because: >
+      DEP-010 is satisfied by the variable merely being present on both. If the
+      sweeper's TTL is shorter than the API's, seats are swept out from under
+      buyers who are still inside the countdown the API showed them — a race the
+      backend suite cannot see, because each service is individually correct.
+      Two numbers in two files is exactly how this happens.
+
+  - id: DEP-042
+    group: secrets
+    severity: blocker
+    assert: >
+      No rendered Secret carries material (`data` or `stringData`) for any key
+      the workloads reference as sensitive.
+    because: >
+      DEP-016 is satisfied by a `secretKeyRef`. It is still satisfied when the
+      Secret that reference points at is rendered two documents further down with
+      the password in it — which converts "we use secret references" into "the
+      password is in the repository, with extra steps". Secrets for this topology
+      are created out of band; the rendered configuration names them and nothing
+      more.
+
+  - id: DEP-043
+    group: ci
+    severity: blocker
+    assert: >
+      The step that invokes conformance/infra can actually fail the workflow: no
+      `continue-on-error: true`, no `|| true`, no falsified `if:` condition on
+      it or on its job.
+    because: >
+      DEP-030 is satisfied by a step whose command runs the suite. A
+      `continue-on-error: true` above that command keeps the command, keeps the
+      log, keeps the green tick, and removes the gate. It is the most common way
+      a pipeline stops being one, because it is usually added on purpose, once,
+      to get a release out.

@@ -1,0 +1,11 @@
+# scenario_id	queue_max	segments	initial_state	title
+s01-happy-door	64	1	no	A commissioned gate admitting valid tickets online
+s02-duplicate-at-the-door	64	1	no	A ticket is admitted exactly once
+s03-restart-remembers	64	2	no	A clean restart does not forget who came in
+s04-power-loss	64	2	no	An unclean power loss does not forget who came in
+s05-offline-queue-and-sync	64	1	no	Scans taken offline replay in order, exactly once
+s06-queue-bound	8	1	no	At the storage bound the door stays open and the loss is counted
+s07-clock-skew	64	1	no	Validity comes from the ticket's signed window, not the local clock
+s08-reconnect-replay-idempotent	64	2	no	Replay after reconnect is idempotent
+s09-counter-bounds	64	1	yes	Counters are exact across the 32-bit boundary
+s10-bad-tickets	64	1	no	Everything that is not a valid ticket, in precedence order

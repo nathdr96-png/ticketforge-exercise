@@ -1,0 +1,41 @@
+GATE event_arena_2000
+LINK up
+NOW 1788285600
+TIME 1788285600
+LINK down
+SCAN tkt_arena_A01-01|event_arena_2000|seat_arena_A01-01|1788282000|1788300000|c382b9bf8d6d7bd4
+#   -> 1 tkt_arena_A01-01 ADMIT OK
+SCAN tkt_arena_A01-02|event_arena_2000|seat_arena_A01-02|1788282000|1788300000|86eefc9a50dba012
+#   -> 2 tkt_arena_A01-02 ADMIT OK
+SCAN tkt_arena_A01-03|event_arena_2000|seat_arena_A01-03|1788282000|1788300000|30c0515d45138cdc
+#   -> 3 tkt_arena_A01-03 ADMIT OK
+SCAN tkt_arena_A01-04|event_arena_2000|seat_arena_A01-04|1788282000|1788300000|e7210c7049ae884e
+#   -> 4 tkt_arena_A01-04 ADMIT OK
+SCAN tkt_arena_A01-05|event_arena_2000|seat_arena_A01-05|1788282000|1788300000|db32ea398d48238c
+#   -> 5 tkt_arena_A01-05 ADMIT OK
+SCAN tkt_arena_A01-06|event_arena_2000|seat_arena_A01-06|1788282000|1788300000|52aa9c042e0d03b2
+#   -> 6 tkt_arena_A01-06 ADMIT OK
+SCAN tkt_arena_A01-07|event_arena_2000|seat_arena_A01-07|1788282000|1788300000|8eae9ab7a6aff0e4
+#   -> 7 tkt_arena_A01-07 ADMIT OK
+SCAN tkt_arena_A01-08|event_arena_2000|seat_arena_A01-08|1788282000|1788300000|5e39c0daa232c466
+#   -> 8 tkt_arena_A01-08 ADMIT OK
+SCAN tkt_arena_A01-09|event_arena_2000|seat_arena_A01-09|1788282000|1788300000|b279e3eda41e5a04
+#   -> 9 tkt_arena_A01-09 ADMIT OK
+SCAN tkt_arena_A01-10|event_arena_2000|seat_arena_A01-10|1788282000|1788300000|caa2a2a17357fd58
+#   -> 10 tkt_arena_A01-10 ADMIT OK
+SCAN tkt_arena_A01-11|event_arena_2000|seat_arena_A01-11|1788282000|1788300000|c919d66e5abbd156
+#   -> 11 tkt_arena_A01-11 ADMIT OK
+SCAN tkt_arena_A01-12|event_arena_2000|seat_arena_A01-12|1788282000|1788300000|a762e71f0e16b8f4
+#   -> 12 tkt_arena_A01-12 ADMIT OK
+SYNC
+#   -> SYNC 0 12       nothing can be uploaded with the link down
+LINK up
+TIME 1788286200
+SYNC
+#   -> SYNC 12 0
+SYNC
+#   -> SYNC 0 0        idempotent: the acknowledged records are gone, not resent
+SCAN tkt_arena_A01-13|event_arena_2000|seat_arena_A01-13|1788282000|1788300000|013ddfd4600f3296
+#   -> 13 tkt_arena_A01-13 ADMIT OK
+SYNC
+#   -> SYNC 1 0

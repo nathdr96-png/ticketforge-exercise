@@ -1,0 +1,121 @@
+asyncapi: 3.0.0
+info:
+  title: TicketForge Events
+  version: 1.0.0
+  description: |
+    Domain events emitted by TicketForge backends.
+    Implementations SHOULD write to an outbox (see schema.sql outbox_events)
+    so conformance can assert eventual publication without coupling to a broker.
+
+defaultContentType: application/json
+
+channels:
+  holdCreated:
+    address: hold.created
+    messages:
+      holdCreatedMessage:
+        $ref: "#/components/messages/HoldCreated"
+  holdExpired:
+    address: hold.expired
+    messages:
+      holdExpiredMessage:
+        $ref: "#/components/messages/HoldExpired"
+  orderPaid:
+    address: order.paid
+    messages:
+      orderPaidMessage:
+        $ref: "#/components/messages/OrderPaid"
+
+operations:
+  publishHoldCreated:
+    action: send
+    channel:
+      $ref: "#/channels/holdCreated"
+  publishHoldExpired:
+    action: send
+    channel:
+      $ref: "#/channels/holdExpired"
+  publishOrderPaid:
+    action: send
+    channel:
+      $ref: "#/channels/orderPaid"
+
+components:
+  messages:
+    HoldCreated:
+      name: hold.created
+      payload:
+        type: object
+        required: [event_type, hold_id, event_id, buyer_id, seat_ids, expires_at, occurred_at]
+        properties:
+          event_type:
+            const: hold.created
+          hold_id:
+            type: string
+          event_id:
+            type: string
+          buyer_id:
+            type: string
+          seat_ids:
+            type: array
+            items:
+              type: string
+          expires_at:
+            type: string
+            format: date-time
+          occurred_at:
+            type: string
+            format: date-time
+    HoldExpired:
+      name: hold.expired
+      payload:
+        type: object
+        required: [event_type, hold_id, event_id, buyer_id, seat_ids, occurred_at]
+        properties:
+          event_type:
+            const: hold.expired
+          hold_id:
+            type: string
+          event_id:
+            type: string
+          buyer_id:
+            type: string
+          seat_ids:
+            type: array
+            items:
+              type: string
+          occurred_at:
+            type: string
+            format: date-time
+    OrderPaid:
+      name: order.paid
+      payload:
+        type: object
+        required:
+          - event_type
+          - order_id
+          - hold_id
+          - event_id
+          - buyer_id
+          - total_cents
+          - currency
+          - occurred_at
+        properties:
+          event_type:
+            const: order.paid
+          order_id:
+            type: string
+          hold_id:
+            type: string
+          event_id:
+            type: string
+          buyer_id:
+            type: string
+          total_cents:
+            type: integer
+            minimum: 0
+          currency:
+            type: string
+          occurred_at:
+            type: string
+            format: date-time

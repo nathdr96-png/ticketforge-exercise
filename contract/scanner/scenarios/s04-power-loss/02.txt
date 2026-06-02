@@ -1,0 +1,8 @@
+SCAN tkt_arena_A01-01|event_arena_2000|seat_arena_A01-01|1788282000|1788300000|c382b9bf8d6d7bd4
+#   -> 4 tkt_arena_A01-01 REFUSE DUPLICATE
+SCAN tkt_arena_A01-03|event_arena_2000|seat_arena_A01-03|1788282000|1788300000|30c0515d45138cdc
+#   -> 5 tkt_arena_A01-03 ADMIT OK
+LINK up
+TIME 1788285700
+SYNC
+#   -> SYNC 5 0

@@ -1,0 +1,272 @@
+openapi_sibling: ../openapi.yaml
+# TicketForge analytics contract
+#
+# This file is to the data/analytics role what openapi.yaml is to the backend
+# role: the source of truth. It defines the business questions, the exact shape
+# of the answer, and the edge-case rules that decide which rows belong.
+#
+# Money definitions are NOT re-invented here. They are the ones already given
+# for `RevenueReport` in ../openapi.yaml:
+#   gross_cents     = SUM(orders.subtotal_cents)
+#   discounts_cents = SUM(orders.discount_cents)
+#   fees_cents      = SUM(orders.fee_cents)
+#   net_cents       = SUM(orders.total_cents) = gross - discounts + fees
+#
+# Every implementation — SQL, dbt, pandas, anything — answers these questions by
+# writing one result file per question id into a results directory. See
+# ./README.md for that interface and ../../conformance/data/ for the grader.
+
+version: 1
+
+dataset:
+  description: >
+    Answers are defined against the deterministic dataset produced by
+    contract/seed (users, events, seats, discounts) plus
+    contract/analytics/fixture.sql (holds, orders, order_seats,
+    idempotency_records, outbox_events). Nothing is randomised. Re-seeding
+    reproduces the same answers byte for byte.
+  load: contract/analytics/fixture.sql
+
+conventions:
+  money: >
+    Integer minor units in every money column. Never a float, never a decimal
+    string. Graders compare money exactly; there is no tolerance.
+  timestamps: >
+    All timestamps are timestamptz stored in UTC. Any bucketing by day MUST be
+    done in UTC and MUST say so in the query (`AT TIME ZONE 'UTC'`). The session
+    timezone is not guaranteed to be UTC, so relying on `created_at::date` is a
+    defect, not a shortcut.
+  currency: >
+    Money is NEVER summed across currencies. `event_jazz_eur` is EUR and
+    `event_cancelled` is GBP precisely so that a query which adds them to the
+    USD events produces a visibly wrong number. Where a question groups money,
+    `currency` is part of the grain.
+  paid_only: >
+    Unless a question says otherwise, revenue aggregates include orders with
+    `status = 'paid'` only. `refunded` orders are excluded from money, but they
+    still exist and still hold seats — see q7.
+  event_status: >
+    `events.status` is one of draft / published / cancelled. Event status does
+    NOT gate revenue: a cancelled event can have taken money before it was
+    cancelled, and that money was really collected. Each question states which
+    events belong.
+  fan_out: >
+    `order_seats` has one row per seat. Joining it to `orders` multiplies every
+    money column on the order by its seat count. Aggregate seat counts
+    separately (a pre-aggregated CTE, or a scalar subquery) and never sum a
+    money column across a fanned-out join.
+  hold_history: >
+    `hold_seats` rows are DELETED when a hold expires, and the hold's seats are
+    returned to the pool. Current state therefore cannot answer any question
+    about hold history. That history lives in `outbox_events`:
+    `hold.created` and `hold.expired` payloads both carry a `seat_ids` array;
+    `order.paid` carries no seat list, so seat-level sales still come from
+    `order_seats`. Releasing a hold emits NO outbox event — a released hold is
+    visible only as a `holds` row with `status = 'released'`.
+  outbox_published_at: >
+    `outbox_events.published_at` is a delivery detail of the publisher. It is
+    NULL for rows not yet dispatched. Analytics MUST NOT filter on it.
+  hold_status: >
+    `holds.status` is authoritative for a hold's outcome. Do not re-derive it
+    from `expires_at` versus the current time: that would make the answer depend
+    on when the query ran.
+  nulls: >
+    A column documented as nullable is emitted as JSON `null`, not as the empty
+    string and not omitted.
+
+output:
+  format: >
+    One file per question id in the results directory, named `<id>.json`,
+    containing a JSON array of objects — one object per result row, in the
+    required order. Keys are exactly the declared column names: no extra keys,
+    no missing keys.
+  integers: >
+    Integer columns may be emitted as a JSON number or as a string of digits
+    (Postgres bigint often serialises as a string). Both are accepted and both
+    are compared exactly as integers. A value containing a decimal point is a
+    failure.
+  dates: >
+    Date columns are emitted as `YYYY-MM-DD` strings in UTC.
+
+questions:
+  - id: q1_revenue_by_event
+    title: Revenue by event
+    question: >
+      Finance reconciles what we owe each organizer. For every event that has
+      taken at least one paid order, how much did we collect, how much of it was
+      given away as discount, and how much of it is our booking fee?
+    grain: one row per (event, currency)
+    columns:
+      - { name: event_id, type: text }
+      - { name: organizer_id, type: text }
+      - { name: currency, type: text }
+      - { name: orders_count, type: integer, note: distinct paid orders }
+      - { name: seats_sold, type: integer, note: order_seats rows belonging to those orders }
+      - { name: gross_cents, type: integer }
+      - { name: discounts_cents, type: integer }
+      - { name: fees_cents, type: integer }
+      - { name: net_cents, type: integer }
+    order_by: [currency ASC, net_cents DESC, event_id ASC]
+    rules:
+      - Paid orders only. A refunded order contributes nothing to any money column and is not counted in orders_count.
+      - Include an event whatever its `events.status`, as long as it has a paid order. A cancelled event that sold tickets before it was cancelled still appears.
+      - Exclude an event with no paid orders entirely. Do not emit a zero row for it.
+      - net_cents must equal gross_cents - discounts_cents + fees_cents on every row.
+      - seats_sold is a seat count, not a money column. It must not change any money column. This is the fan-out trap.
+
+  - id: q2_daily_sales_utc
+    title: Daily sales by event, in UTC
+    question: >
+      The daily sales digest. For each UTC calendar day on which we took money,
+      how many paid orders were there per event and what did they come to?
+    grain: one row per (UTC day, event, currency)
+    columns:
+      - { name: sales_day, type: date }
+      - { name: event_id, type: text }
+      - { name: currency, type: text }
+      - { name: orders_count, type: integer }
+      - { name: gross_cents, type: integer }
+      - { name: net_cents, type: integer }
+    order_by: [sales_day ASC, event_id ASC]
+    rules:
+      - Bucket `orders.created_at` by UTC calendar day, explicitly. The fixture deliberately contains orders just after and just before UTC midnight; a query bucketed in any other zone moves them to the wrong day.
+      - Paid orders only.
+      - Emit only days on which an event actually took a paid order. Do not gap-fill missing days and do not emit zero rows.
+      - Money stays within one currency per row; never aggregate across events.
+
+  - id: q3_hold_funnel_by_event
+    title: Hold-to-order funnel by event
+    question: >
+      Venue Ops wants to know how much of our held inventory turns into sales.
+      Per event, how many holds were created and what became of them?
+    grain: one row per event that has at least one hold
+    columns:
+      - { name: event_id, type: text }
+      - { name: holds_created, type: integer }
+      - { name: holds_converted, type: integer }
+      - { name: holds_expired, type: integer }
+      - { name: holds_released, type: integer }
+      - { name: holds_active, type: integer }
+      - { name: conversion_bps, type: integer, note: basis points, ROUND(holds_converted * 10000 / holds_created) half-up }
+    order_by: [event_id ASC]
+    rules:
+      - Count HOLDS, not seats. A hold on four seats is one hold. Counting `hold_seats` rows instead is wrong twice over: it weights big holds more, and the rows are gone for holds that expired.
+      - A held seat is not a sold seat. Nothing in this question touches orders or money.
+      - holds_converted is `holds.status = 'converted'`. A hold whose order was later refunded still converted.
+      - The four status counts must sum to holds_created.
+      - conversion_bps is an integer basis-point figure, rounded half-up. 7 of 13 is 5385, not 5384.
+      - Exclude an event with no holds at all.
+
+  - id: q4_seat_hold_history
+    title: Seat-level hold history from the event log
+    question: >
+      Which seats have ever been held, how many hold attempts has each event
+      seen, and how many seats were held, timed out, and then never ordered at
+      all? Venue Ops uses the last number to judge whether the hold window is
+      too long.
+    grain: one row per event that appears in a hold.created outbox event
+    columns:
+      - { name: event_id, type: text }
+      - { name: holds_observed, type: integer, note: distinct hold_id values in hold.created }
+      - { name: seat_hold_pairs, type: integer, note: total (hold, seat) pairs across hold.created, duplicates across holds counted once each }
+      - { name: seats_ever_held, type: integer, note: distinct seat ids across hold.created }
+      - { name: seats_expired_never_ordered, type: integer }
+    order_by: [event_id ASC]
+    rules:
+      - Source the history from `outbox_events`, not from `hold_seats`. `hold_seats` rows are deleted when a hold expires, so current state has already forgotten most of this.
+      - "`hold.created` and `hold.expired` payloads carry `seat_ids` as a JSON array. Unnest it."
+      - seat_hold_pairs counts every (hold, seat) pair; seats_ever_held de-duplicates the seat. The fixture contains seats held by two different holds, so these two numbers differ.
+      - seats_expired_never_ordered counts distinct seats that appear in a `hold.expired` payload and appear in NO `order_seats` row — including none belonging to a refunded order. A seat that expired out of one hold and was sold later does not count.
+      - Ignore `published_at`. Rows that have not been dispatched yet are still history.
+      - Released holds emit no outbox event and therefore cannot appear here. That is expected, not a bug.
+
+  - id: q5_top_buyers_by_currency
+    title: Top buyers, per currency
+    question: >
+      Customer Success wants our best customers. Per currency, who are the three
+      buyers who have paid us the most?
+    grain: one row per (currency, rank), at most three ranks per currency
+    columns:
+      - { name: currency, type: text }
+      - { name: rank, type: integer, note: 1-based, dense within the currency }
+      - { name: buyer_id, type: text }
+      - { name: email, type: text }
+      - { name: orders_count, type: integer }
+      - { name: seats_purchased, type: integer }
+      - { name: net_cents, type: integer }
+    order_by: [currency ASC, rank ASC]
+    rules:
+      - Rank within the currency, never across it. A EUR buyer and a USD buyer are not comparable and their money must never land in one total.
+      - Paid orders only. A buyer whose only order was refunded does not appear at all.
+      - Ranking key is net_cents DESC, then buyer_id ASC to break ties deterministically. Ranks are consecutive integers starting at 1 (ROW_NUMBER semantics).
+      - seats_purchased is a seat count and must not inflate net_cents. Fan-out trap again.
+      - A currency with fewer than three paying buyers emits fewer than three rows.
+
+  - id: q6_discount_effectiveness
+    title: Discount code effectiveness
+    question: >
+      Finance needs to know what each promo code actually cost us, and Marketing
+      needs to know which codes nobody is using.
+    grain: one row per (discount code, currency it was redeemed in); one row with a null currency for a code never redeemed
+    columns:
+      - { name: code, type: text }
+      - { name: percent_off, type: integer }
+      - { name: active, type: boolean }
+      - { name: currency, type: text, nullable: true }
+      - { name: orders_count, type: integer }
+      - { name: gross_cents, type: integer }
+      - { name: discounts_cents, type: integer }
+      - { name: fees_cents, type: integer }
+      - { name: net_cents, type: integer }
+    order_by: [code ASC, currency ASC NULLS LAST]
+    rules:
+      - Every row in `discounts` appears, including inactive codes and codes with no orders. Start from `discounts` and outer-join the orders; starting from `orders` silently drops the codes Marketing is asking about.
+      - A code redeemed in more than one currency produces one row per currency. `SAVE10` is global and has been used on both a USD and a EUR event, so collapsing it to a single row means adding dollars to euros.
+      - A code never redeemed produces exactly one row, with `currency` null and every count and money column 0.
+      - Paid orders only.
+      - net_cents must equal gross_cents - discounts_cents + fees_cents on every row with orders_count > 0.
+
+  - id: q7_inventory_reconciliation
+    title: Seat inventory reconciliation
+    question: >
+      For every event, does the seat map agree with what we have actually been
+      paid for? Ops needs the seats that say `sold` but belong to no paid order.
+    grain: one row per event, all events
+    columns:
+      - { name: event_id, type: text }
+      - { name: event_status, type: text }
+      - { name: currency, type: text }
+      - { name: seats_total, type: integer }
+      - { name: seats_available, type: integer }
+      - { name: seats_held, type: integer }
+      - { name: seats_sold_status, type: integer, note: seats.status = 'sold' }
+      - { name: seats_in_paid_orders, type: integer, note: distinct seat ids across paid orders }
+      - { name: unreconciled_seats, type: integer, note: seats_sold_status - seats_in_paid_orders }
+    order_by: [event_id ASC]
+    rules:
+      - EVERY event appears, including `event_draft` and `event_cancelled`, and including events with no holds and no orders. Those rows are zeros, not absences.
+      - seats_sold_status counts `seats.status = 'sold'`. There is no refund path that returns a seat to the pool, so a refunded order's seats stay `sold` — which is exactly the discrepancy this report exists to surface.
+      - seats_in_paid_orders counts DISTINCT seat ids across orders with `status = 'paid'`. A seat refunded and then resold belongs to two orders and must be counted once.
+      - The three status counts (available, held, sold) must sum to seats_total.
+
+  - id: q8_order_value_distribution
+    title: Order value distribution by event
+    question: >
+      What does a typical order look like per event — how much is it worth, and
+      how many seats does it carry?
+    grain: one row per (event, currency) over paid orders
+    columns:
+      - { name: event_id, type: text }
+      - { name: currency, type: text }
+      - { name: orders_count, type: integer }
+      - { name: seats_sold, type: integer }
+      - { name: min_net_cents, type: integer }
+      - { name: max_net_cents, type: integer }
+      - { name: avg_net_cents, type: integer, note: ROUND(SUM(total_cents) / orders_count) half-up }
+      - { name: avg_seats_per_order_bps, type: integer, note: ROUND(seats_sold * 10000 / orders_count) half-up }
+    order_by: [currency ASC, event_id ASC]
+    rules:
+      - Averages are integers, rounded half-up at the last step. Truncating integer division is wrong; 68482/6 is 11414, not 11413.
+      - Divide by the number of ORDERS, not the number of order_seats rows. Fan-out turns the average order value into the average seat value.
+      - Paid orders only; min and max are over order totals, not over seat prices.
+      - Never average across currencies.

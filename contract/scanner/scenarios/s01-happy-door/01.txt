@@ -1,0 +1,21 @@
+# The ordinary case: the gate is commissioned, the link is up, authoritative
+# time has been obtained, and four valid arena tickets walk through.
+GATE event_arena_2000
+LINK up
+NOW 1788285600
+TIME 1788285600
+SCAN tkt_arena_A01-01|event_arena_2000|seat_arena_A01-01|1788282000|1788300000|c382b9bf8d6d7bd4
+#   -> 1 tkt_arena_A01-01 ADMIT OK
+SCAN tkt_arena_A01-02|event_arena_2000|seat_arena_A01-02|1788282000|1788300000|86eefc9a50dba012
+#   -> 2 tkt_arena_A01-02 ADMIT OK
+SCAN tkt_arena_A01-03|event_arena_2000|seat_arena_A01-03|1788282000|1788300000|30c0515d45138cdc
+#   -> 3 tkt_arena_A01-03 ADMIT OK
+SYNC
+#   -> SYNC 3 0
+TICK 60
+SCAN tkt_arena_A01-04|event_arena_2000|seat_arena_A01-04|1788282000|1788300000|e7210c7049ae884e
+#   -> 4 tkt_arena_A01-04 ADMIT OK
+SYNC
+#   -> SYNC 1 0
+SYNC
+#   -> SYNC 0 0        a sync with an empty queue uploads nothing

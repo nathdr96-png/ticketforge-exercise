@@ -1,0 +1,786 @@
+openapi: 3.1.0
+info:
+  title: TicketForge API
+  version: 1.0.0
+  description: |
+    Event ticketing with time-limited seat holds.
+    Money is always integer minor units. Timestamps are always UTC ISO-8601.
+    Error codes are enumerated in contract/errors.md — do not invent new ones.
+servers:
+  - url: http://localhost:3000
+    description: Local slot
+
+tags:
+  - name: auth
+  - name: events
+  - name: holds
+  - name: orders
+  - name: reports
+  - name: health
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      operationId: getHealth
+      summary: Liveness probe
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Exchange email/password for a bearer token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /events:
+    get:
+      tags: [events]
+      operationId: listEvents
+      summary: List events (paginated)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, published, cancelled]
+      responses:
+        "200":
+          description: Page of events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /events/{eventId}:
+    get:
+      tags: [events]
+      operationId: getEvent
+      summary: Get a single event
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+      responses:
+        "200":
+          description: Event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /events/{eventId}/seats:
+    get:
+      tags: [events]
+      operationId: listSeats
+      summary: Paginated seat map; filterable by section and availability
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/eventId"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+        - name: section
+          in: query
+          schema:
+            type: string
+            enum: [A, B, C, D]
+        - name: availability
+          in: query
+          schema:
+            type: string
+            enum: [available, held, sold]
+      responses:
+        "200":
+          description: Page of seats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatList"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/EventNotFound"
+
+  /holds:
+    post:
+      tags: [holds]
+      operationId: createHold
+      summary: Place a time-limited exclusive hold on one or more seats
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateHoldRequest"
+      responses:
+        "201":
+          description: Hold created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Hold"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientPermission"
+        "404":
+          $ref: "#/components/responses/SeatNotFound"
+        "409":
+          description: Seat conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+              examples:
+                alreadyHeld:
+                  value:
+                    error:
+                      code: SEAT_ALREADY_HELD
+                      message: Seat is currently held
+                      details:
+                        seat_id: seat_0001
+                notAvailable:
+                  value:
+                    error:
+                      code: SEAT_NOT_AVAILABLE
+                      message: Seat is sold
+                      details:
+                        seat_id: seat_0001
+
+  /holds/{holdId}:
+    get:
+      tags: [holds]
+      operationId: getHold
+      summary: Get hold by id (owner or admin)
+      description: >
+        Returns the hold with its current status, including a hold the expiry
+        worker has already swept to `expired` — that is a 200, not a 410, because
+        the resource is still retrievable and its state is the answer.
+        410 `HOLD_EXPIRED` is returned only for a hold still recorded `active`
+        whose TTL has passed: the server expires it (releasing its seats) and
+        reports 410 rather than handing back a hold the caller could not use.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/holdId"
+      responses:
+        "200":
+          description: Hold, with its current status (may be expired, released or converted)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Hold"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientPermission"
+        "404":
+          $ref: "#/components/responses/HoldNotFound"
+        "410":
+          $ref: "#/components/responses/HoldExpired"
+    delete:
+      tags: [holds]
+      operationId: releaseHold
+      summary: Release a hold early; seats become available
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/holdId"
+      responses:
+        "204":
+          description: Released
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientPermission"
+        "404":
+          $ref: "#/components/responses/HoldNotFound"
+        "410":
+          $ref: "#/components/responses/HoldExpired"
+
+  /orders:
+    post:
+      tags: [orders]
+      operationId: createOrder
+      summary: Convert a hold into a paid order (idempotent)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "200":
+          description: Idempotent replay — same key + same body returns existing order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          description: Validation or missing idempotency key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientPermission"
+        "404":
+          $ref: "#/components/responses/HoldNotFound"
+        "409":
+          description: Conflict (idempotency body mismatch, hold converted, discount)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "410":
+          $ref: "#/components/responses/HoldExpired"
+
+  /orders/{orderId}:
+    get:
+      tags: [orders]
+      operationId: getOrder
+      summary: Get order by id (owner, event organizer, or admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+      responses:
+        "200":
+          description: Order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientPermission"
+        "404":
+          $ref: "#/components/responses/OrderNotFound"
+
+  /reports/revenue:
+    get:
+      tags: [reports]
+      operationId: revenueReport
+      summary: Organizer (or admin) revenue report with per-event aggregation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Revenue report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevenueReport"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/InsufficientPermission"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    pageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    eventId:
+      name: eventId
+      in: path
+      required: true
+      schema:
+        type: string
+    holdId:
+      name: holdId
+      in: path
+      required: true
+      schema:
+        type: string
+    orderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    MoneyCents:
+      type: integer
+      description: Integer minor units (cents). Never a float.
+      minimum: 0
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+
+    LoginResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+
+    User:
+      type: object
+      required: [id, email, role, name]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, organizer, buyer]
+        name:
+          type: string
+
+    Event:
+      type: object
+      required:
+        - id
+        - organizer_id
+        - title
+        - venue
+        - starts_at
+        - currency
+        - base_price_cents
+        - status
+        - seat_count
+      properties:
+        id:
+          type: string
+        organizer_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        venue:
+          type: string
+        starts_at:
+          type: string
+          format: date-time
+        currency:
+          type: string
+          enum: [USD, EUR, GBP]
+        base_price_cents:
+          $ref: "#/components/schemas/MoneyCents"
+        status:
+          type: string
+          enum: [draft, published, cancelled]
+        seat_count:
+          type: integer
+          minimum: 0
+
+    EventList:
+      type: object
+      required: [data, page, page_size, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+
+    Seat:
+      type: object
+      required: [id, event_id, section, row, number, status, price_cents]
+      properties:
+        id:
+          type: string
+        event_id:
+          type: string
+        section:
+          type: string
+          enum: [A, B, C, D]
+        row:
+          type: string
+        number:
+          type: integer
+        status:
+          type: string
+          enum: [available, held, sold]
+        price_cents:
+          $ref: "#/components/schemas/MoneyCents"
+
+    SeatList:
+      type: object
+      required: [data, page, page_size, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Seat"
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+
+    CreateHoldRequest:
+      type: object
+      required: [event_id, seat_ids]
+      properties:
+        event_id:
+          type: string
+        seat_ids:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 10
+
+    Hold:
+      type: object
+      required:
+        - id
+        - event_id
+        - buyer_id
+        - seat_ids
+        - status
+        - expires_at
+        - created_at
+      properties:
+        id:
+          type: string
+        event_id:
+          type: string
+        buyer_id:
+          type: string
+        seat_ids:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [active, expired, released, converted]
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    CreateOrderRequest:
+      type: object
+      required: [hold_id]
+      properties:
+        hold_id:
+          type: string
+        discount_code:
+          type: string
+          nullable: true
+
+    Order:
+      type: object
+      required:
+        - id
+        - hold_id
+        - buyer_id
+        - event_id
+        - seat_ids
+        - subtotal_cents
+        - fee_cents
+        - discount_cents
+        - total_cents
+        - currency
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+        hold_id:
+          type: string
+        buyer_id:
+          type: string
+        event_id:
+          type: string
+        seat_ids:
+          type: array
+          items:
+            type: string
+        subtotal_cents:
+          $ref: "#/components/schemas/MoneyCents"
+        fee_cents:
+          $ref: "#/components/schemas/MoneyCents"
+        discount_cents:
+          $ref: "#/components/schemas/MoneyCents"
+        total_cents:
+          $ref: "#/components/schemas/MoneyCents"
+        currency:
+          type: string
+          enum: [USD, EUR, GBP]
+        discount_code:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [paid, refunded]
+        created_at:
+          type: string
+          format: date-time
+
+    RevenueReport:
+      type: object
+      description: >
+        Aggregated over orders with status `paid` only. An organizer sees only
+        their own events; an admin sees all of them. Every figure is the sum of
+        the corresponding order column, and they must reconcile exactly:
+        `net_cents == gross_cents - discounts_cents + fees_cents`.
+        `by_event` must sum to the headline figures.
+      required: [currency, gross_cents, fees_cents, discounts_cents, net_cents, by_event]
+      properties:
+        currency:
+          type: string
+        gross_cents:
+          description: Sum of order `subtotal_cents` — seat face value before discounts and fees.
+          $ref: "#/components/schemas/MoneyCents"
+        fees_cents:
+          description: Sum of order `fee_cents` — the booking fee we add on top.
+          $ref: "#/components/schemas/MoneyCents"
+        discounts_cents:
+          description: Sum of order `discount_cents` — value given away via discount codes.
+          $ref: "#/components/schemas/MoneyCents"
+        net_cents:
+          description: >
+            Sum of order `total_cents` — the amount actually collected from
+            buyers. Equals gross_cents - discounts_cents + fees_cents.
+          $ref: "#/components/schemas/MoneyCents"
+        by_event:
+          type: array
+          items:
+            type: object
+            required: [event_id, order_count, gross_cents, net_cents]
+            properties:
+              event_id:
+                type: string
+              order_count:
+                type: integer
+              gross_cents:
+                $ref: "#/components/schemas/MoneyCents"
+              net_cents:
+                $ref: "#/components/schemas/MoneyCents"
+
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHENTICATED
+                - INSUFFICIENT_PERMISSION
+                - NOT_FOUND
+                - EVENT_NOT_FOUND
+                - SEAT_NOT_FOUND
+                - HOLD_NOT_FOUND
+                - ORDER_NOT_FOUND
+                - VALIDATION_ERROR
+                - SEAT_ALREADY_HELD
+                - SEAT_NOT_AVAILABLE
+                - HOLD_EXPIRED
+                - HOLD_ALREADY_CONVERTED
+                - IDEMPOTENCY_KEY_REQUIRED
+                - IDEMPOTENCY_KEY_CONFLICT
+                - DISCOUNT_INVALID
+                - DISCOUNT_ALREADY_APPLIED
+                - RATE_LIMITED
+                - INTERNAL_ERROR
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+
+  responses:
+    Unauthenticated:
+      description: Missing or invalid auth
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+          example:
+            error:
+              code: UNAUTHENTICATED
+              message: Authentication required
+    InsufficientPermission:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+          example:
+            error:
+              code: INSUFFICIENT_PERMISSION
+              message: Insufficient permission
+    ValidationError:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Invalid request
+    EventNotFound:
+      description: Event not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+          example:
+            error:
+              code: EVENT_NOT_FOUND
+              message: Event not found
+    SeatNotFound:
+      description: Seat not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+          example:
+            error:
+              code: SEAT_NOT_FOUND
+              message: Seat not found
+    HoldNotFound:
+      description: Hold not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+          example:
+            error:
+              code: HOLD_NOT_FOUND
+              message: Hold not found
+    OrderNotFound:
+      description: Order not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+          example:
+            error:
+              code: ORDER_NOT_FOUND
+              message: Order not found
+    HoldExpired:
+      description: Hold expired
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+          example:
+            error:
+              code: HOLD_EXPIRED
+              message: Hold has expired

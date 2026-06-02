@@ -1,0 +1,266 @@
+# The turnstile scanner's process interface — the edge family's equivalent of
+# contract/openapi.yaml. Everything an implementation is graded on is reachable
+# from here; the prose and the reasoning are in README.md, the assertable rules
+# are in rules.yaml.
+#
+# Nothing in this file is language-specific. A C program, a Rust program and a
+# MicroPython script that all satisfy it are graded identically, because the
+# grading surface is the bytes the device writes and nothing else.
+
+version: 1
+
+process:
+  argv: "scanner --state <dir> --queue-max <n>"
+  options:
+    --state:
+      required: true
+      description: >
+        The durable state directory. It is the device's flash. The device reads
+        it at startup and writes it as it runs; nothing may be kept only in
+        memory.
+    --queue-max:
+      required: false
+      default: 64
+      description: >
+        The bound on the offline queue, in records. Declared per scenario in
+        scenarios/index.tsv.
+  stdin: "the event transcript, one event per line"
+  stdout: "the decision stream, one line per SCAN and one line per SYNC"
+  stderr:
+    must_be_empty: true
+    description: >
+      The device must write nothing to stderr, ever. Diagnostics belong in a
+      file inside the state directory. This is not tidiness: stderr is the
+      channel AddressSanitizer, UndefinedBehaviorSanitizer and a Rust panic use,
+      so an empty stderr is how memory safety is graded, and a device that logs
+      there makes that measurement impossible.
+  exit_status:
+    clean_eof: 0
+    on_abort: 0
+    description: >
+      Reaching end of input is a normal exit. ABORT is also a successful exit —
+      the device is simulating a power cut, not failing. Any non-zero status in
+      exit-codes.txt is a crash, an abort or a sanitizer finding.
+
+limits:
+  # Transcript lines never exceed this. A longer one does not occur in the
+  # corpus, and a device that is handed one must discard it, count it in
+  # unknown_event_total and keep reading — not truncate it and act on the prefix.
+  line_bytes_max: 1024
+  ticket_id_bytes_max: 64
+  event_id_bytes_max: 32
+  seat_id_bytes_max: 32
+  blob_bytes_max: 256
+  counter_exact_to: 9007199254740991   # 2^53 - 1, the JSON-exact integer bound
+
+# ---------------------------------------------------------------- input format
+transcript:
+  encoding: ascii
+  comment_prefix: "#"
+  blank_lines: ignored
+  field_separator: " "
+  unknown_event: >
+    Skipped, counted in unknown_event_total, and survived. A newer server will
+    one day send this device a verb it has never heard of and the door must keep
+    working.
+  events:
+    GATE:
+      args: [event_id]
+      description: >
+        Commission this gate to one event. Persisted. A SCAN before any GATE is
+        refused NOT_COMMISSIONED.
+    LINK:
+      args: ["up|down"]
+      description: Connectivity state. Persisted.
+    TICK:
+      args: [seconds]
+      description: >
+        Monotonic elapsed time advances by this many seconds. The wall clock
+        advances with it. Monotonic time is the only time the device trusts
+        itself to measure.
+    NOW:
+      args: [unix_seconds]
+      description: >
+        The local wall clock is set to this value absolutely — a clock jump.
+        UNTRUSTED. It never moves monotonic time and it never decides an
+        admission.
+    TIME:
+      args: [unix_seconds]
+      description: >
+        Authoritative time from upstream. Requires LINK up; while the link is
+        down it is rejected and counted in time_rejected_total. It sets
+        trusted_epoch and anchors it to the current monotonic value.
+    SCAN:
+      args: [ticket_blob]
+      description: A ticket is presented at the turnstile. Emits one decision line.
+    SYNC:
+      args: []
+      description: >
+        Upload the whole offline queue upstream, in order, and clear it. A no-op
+        while the link is down. Emits one SYNC line.
+    REPLAY:
+      args: [ticket_id, admitted_at]
+      description: >
+        Upstream asserts that this ticket was admitted at this gate or another
+        one. Absorbed idempotently into the admitted set. Emits nothing.
+    ABORT:
+      args: []
+      description: >
+        Simulate losing the mains: terminate immediately with status 0, without
+        flushing anything, without running any exit handler. Everything already
+        announced on stdout must already be durable.
+
+# ---------------------------------------------------------------- ticket format
+ticket_blob:
+  format: "<ticket_id>|<event_id>|<seat_id>|<valid_from>|<valid_to>|<signature>"
+  fields:
+    ticket_id: "tkt_ + the seat id's suffix, e.g. tkt_arena_A01-01"
+    event_id: "the event this ticket admits to"
+    seat_id: "the seat from contract/seed/seats.json"
+    valid_from: "unix seconds; the event's starts_at minus doors_open_before_s"
+    valid_to: "unix seconds; the event's starts_at plus doors_close_after_s"
+    signature: "16 lowercase hex digits; see signature below"
+  windows:
+    doors_open_before_s: 7200
+    doors_close_after_s: 10800
+  signature:
+    algorithm: fnv1a64
+    key: tf-scanner-v1
+    payload: "<key>|<ticket_id>|<event_id>|<seat_id>|<valid_from>|<valid_to>"
+    encoding: "16 lowercase hex digits, zero-padded"
+    fnv1a64:
+      offset_basis: "0xcbf29ce484222325"
+      prime: "0x100000001b3"
+      operation: "for each byte: h ^= byte; h = (h * prime) mod 2^64"
+    not_cryptography: >
+      This is a checksum with a key, not a MAC. It exists so that C, Rust and
+      MicroPython can agree byte for byte on whether a window was widened,
+      without a shared crypto library on a device with 64 KiB of RAM. A real
+      product signs with Ed25519 and verifies with a public key burned into the
+      device. Do not ship this.
+  generated_from: contract/seed/
+  fixture: contract/scanner/tickets.jsonl
+
+# ---------------------------------------------------------------- output format
+decisions:
+  scan_line: "<seq> <ticket_id> <ADMIT|REFUSE> <reason>"
+  sync_line: "SYNC <uploaded> <queue_depth_after>"
+  seq:
+    description: >
+      The scan ordinal. Starts at 1 on a fresh device, persists across restarts,
+      increments once per SCAN including refused and malformed ones.
+  ticket_id_field:
+    description: >
+      The ticket id, or "-" when the blob could not be parsed into a valid one
+      (reason MALFORMED). Never a truncated or over-long id.
+  reasons:
+    - OK
+    - DUPLICATE
+    - NOT_YET_VALID
+    - EXPIRED
+    - WRONG_EVENT
+    - BAD_SIGNATURE
+    - MALFORMED
+    - NO_TRUSTED_TIME
+    - NOT_COMMISSIONED
+  precedence:
+    # Evaluated strictly in this order; the first failing check is the reason.
+    - MALFORMED
+    - BAD_SIGNATURE
+    - NOT_COMMISSIONED
+    - WRONG_EVENT
+    - DUPLICATE
+    - NO_TRUSTED_TIME
+    - NOT_YET_VALID
+    - EXPIRED
+    - OK
+  flush: >
+    Each line is flushed before the next event is read. The operator watching
+    the door log sees a decision the instant it is made, and a power cut cannot
+    swallow a decision the device already made.
+
+# ---------------------------------------------------------------- state format
+state_dir:
+  files:
+    admitted.log:
+      format: "<ticket_id> <admitted_at> <LOCAL|REPLAY>"
+      append_only: true
+      order: "admission order"
+      description: >
+        The authority for "this ticket has already been used". LOCAL means this
+        door admitted it; REPLAY means upstream told us another gate did. Never
+        truncated, never rewritten, never evicted.
+    queue.log:
+      format: "<record_id> <ticket_id_or_dash> <scanned_at> <ADMIT|REFUSE> <reason>"
+      order: "FIFO — oldest first"
+      description: >
+        The offline queue: every scan that has not yet been acknowledged
+        upstream. Refused scans are queued too; a ticket presented twice is
+        exactly what the back office wants to see.
+      bounded_by: --queue-max
+    uploaded.log:
+      format: "same as a queue.log line"
+      append_only: true
+      order: "upload order"
+      description: >
+        What the device has actually handed upstream. This is the artifact that
+        proves "in order, exactly once, nothing lost": it is the only place a
+        re-sent or dropped record is visible after the fact.
+    counters.json:
+      description: The final state file. Every value is an exact integer.
+      keys:
+        gate_event_id: "string or null"
+        link_up: boolean
+        trusted_epoch: "int or null — authoritative time at the last anchor"
+        trusted_anchor_mono: "int — the monotonic value when it was anchored"
+        mono: "int — monotonic seconds since this device was first commissioned"
+        wall: "int — the untrusted local clock"
+        next_seq: int
+        next_record_id: int
+        scans_total: int
+        admitted_total: "int — admissions at THIS door; a replay never moves it"
+        refused_total: int
+        refused_by_reason: "object: reason -> count, only non-zero reasons present"
+        queued_total: int
+        uploaded_total: int
+        queue_evicted_total: int
+        queue_depth: int
+        replay_total: int
+        replay_absorbed_total: "int — replays that were new to this device"
+        admitted_known: "int — size of the admitted set"
+        sync_offline_total: "int — SYNCs attempted with the link down"
+        time_rejected_total: "int — TIMEs received with the link down"
+        unknown_event_total: int
+        queue_max: "int — the bound this run was configured with"
+      derived_not_loaded: >
+        queue_depth and admitted_known are written for a reader's benefit but
+        are NOT read back at startup: they are derived from queue.log and
+        admitted.log. The two logs are the evidence and counters.json is the
+        summary, so a disagreement resolves in favour of what is on the flash.
+  durability: >
+    Every one of these files is durable before the decision that produced it is
+    written to stdout. Write-ahead, not write-behind: see rule SCAN-R03.
+
+# ---------------------------------------------------------------- run protocol
+run:
+  manifest: contract/scanner/scenarios/index.tsv
+  driver: contract/scanner/run-scenarios.sh
+  outputs:
+    manifest.tsv: "the scenarios that were run"
+    "<id>/decisions.txt": "every segment's stdout, concatenated in segment order"
+    "<id>/stderr.log": "every segment's stderr, concatenated in segment order"
+    "<id>/exit-codes.txt": "<segment> <exit status> per segment"
+    "<id>/state/": "the state directory as it stands at the end of the run"
+    "<id>/after-NN/": "a snapshot of the state directory after each segment"
+  env:
+    SCAN_OUT_DIR:
+      required: true
+      default: none
+      description: >
+        Where the device's outputs go, and what conformance/edge grades. No
+        default, in either the runner or the suite: silently grading the wrong
+        directory is worse than refusing to run.
+  segments: >
+    A scenario is a list of transcript segments. Each segment is a SEPARATE
+    PROCESS against the same state directory, so a segment boundary is a
+    restart. That is the only honest way to measure persistence.

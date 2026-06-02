@@ -1,0 +1,312 @@
+# TicketForge order-risk contract
+#
+# This file is to the AI/ML role what ../openapi.yaml is to the backend role and
+# ../analytics/questions.yaml is to the data role: the source of truth. It
+# declares the dataset, the columns you may use, the shape of the output, the
+# metric, the bar, and the rules — each with a stable id, so that "this model is
+# wrong" is a measurement and not a reviewer's taste.
+#
+# Everything here is additive. It does not change the REST surface, the schema or
+# the seed, and no other role family is affected by it.
+#
+# See ./README.md for what each rule means in production — why it is a rule, and
+# what it costs when it is broken.
+
+version: 1
+
+task:
+  id: order_risk_scoring
+  summary: >
+    Score every order in the holdout for the probability that it is fraudulent,
+    so that Support reviews the riskiest orders first. The deliverable is a
+    ranking, not a decision: the score is read by a human who works down a queue.
+  why_ranking_not_classification: >
+    Support has a fixed amount of review capacity per day. What they need is the
+    right orders at the top of the list. Nothing in this contract asks for a
+    yes/no answer, no threshold is graded, and emitting a thresholded flag
+    instead of a score fails RISK-R06.
+
+# ---------------------------------------------------------------- the dataset
+dataset:
+  seed: 20260815
+  generator: contract/risk/make-dataset.py
+  manifest: contract/risk/data/MANIFEST.json
+  description: >
+    9,000 orders over four months, derived from the product's own world: the five
+    events in contract/seed/, their real currencies and per-section seat prices,
+    the three real discount codes, the real fee formula, the 50 seeded buyer
+    accounts, and the fourteen real orders in contract/analytics/fixture.sql,
+    which appear in `train` with their actual money. Money obeys the pricing
+    rules in contract/schema.sql on every row. Nothing is randomised at read
+    time: the files are committed, and their sha256 digests are in the manifest.
+  split:
+    kind: temporal
+    at: "2026-08-01T00:00:00Z"
+    rationale: >
+      Fraud is adversarial and non-stationary. A random split lets a model see
+      the same buyer's later behaviour while predicting their earlier orders,
+      which flatters it and is not how it would be evaluated in production. The
+      cut is a date.
+  files:
+    - path: contract/risk/data/train.csv
+      rows: 6734
+      has_label: true
+      role: >
+        The only labelled data. Fit on this, and on nothing else.
+    - path: contract/risk/data/holdout.csv
+      rows: 2266
+      has_label: false
+      role: >
+        The graded holdout. Its labels are withheld and are not in this
+        repository as shipped.
+    - path: contract/risk/data/holdout_masked.csv
+      rows: 2266
+      has_label: false
+      role: >
+        The same 2,266 orders as holdout.csv, in the same order, with every
+        column marked `available: post_review` emptied. It exists so that
+        RISK-R02 is measured rather than trusted — see RISK-R05.
+    - path: contract/risk/data/holdout_shard.csv
+      rows: 756
+      has_label: false
+      role: >
+        Every third row of holdout.csv, by position, starting at the first. It
+        exists so that RISK-R08 is measured rather than trusted.
+  label:
+    column: is_fraud
+    values: [0, 1]
+    meaning: >
+      1 if the order was ultimately established to be fraudulent — a confirmed
+      chargeback, a confirmed stolen instrument, or a confirmed account
+      takeover. 0 otherwise.
+    class_balance: >
+      5.85% of train and 4.41% of holdout are fraud. Fraud is rare, so accuracy
+      is not the metric and never will be: a model that answers "never fraud" is
+      95.6% accurate and worth nothing. See RISK-R04.
+
+# ------------------------------------------------------------------- features
+# `available` is the whole point of this block.
+#
+#   order_time  — known at the moment the order is placed. You may use these.
+#   post_review — written by a human during or after a fraud investigation.
+#                 They are in the warehouse, so they are in this dataset. Using
+#                 one is forbidden by RISK-R02 and detected by RISK-R05.
+features:
+  - {name: order_id, type: string, available: key, description: "Order identifier. The join key for your output; not a feature."}
+  - {name: created_at, type: timestamp_utc, available: order_time, description: "When the order was placed. UTC, ISO-8601."}
+  - {name: event_id, type: categorical, available: order_time, description: "One of the five events in contract/seed/."}
+  - {name: currency, type: categorical, available: order_time, description: "USD, EUR or GBP. A function of the event."}
+  - {name: seat_section, type: categorical, available: order_time, description: "Section the seats were bought in. Price is a function of (event, section)."}
+  - {name: seat_count, type: integer, available: order_time, description: "Seats on the order, 1-8."}
+  - {name: subtotal_cents, type: integer, available: order_time, description: "seat_count x the section's seat price. Integer minor units."}
+  - {name: discount_cents, type: integer, available: order_time, description: "floor(subtotal_cents * percent_off / 100)."}
+  - {name: fee_cents, type: integer, available: order_time, description: "floor((subtotal_cents - discount_cents) * 5 / 100) + 30."}
+  - {name: total_cents, type: integer, available: order_time, description: "subtotal - discount + fee. Integer minor units."}
+  - {name: discount_code, type: categorical, available: order_time, nullable: true, description: "SAVE10 or ARENA20, or empty. EXPIRED0 is inactive in the seed and so never appears on an order."}
+  - {name: buyer_id, type: categorical, available: order_time, description: "High cardinality: 50 seeded accounts plus 900 generated ones. See RISK-R08 before you encode it."}
+  - {name: buyer_is_seeded_account, type: boolean, available: order_time, description: "True for the 50 long-standing accounts in contract/seed/."}
+  - {name: buyer_account_age_days, type: integer, available: order_time, description: "Days between the account opening and this order."}
+  - {name: buyer_prior_paid_orders, type: integer, available: order_time, description: "Paid orders this buyer had before this one."}
+  - {name: buyer_prior_refunded_orders, type: integer, available: order_time, description: "Refunded orders this buyer had before this one."}
+  - {name: orders_from_buyer_last_1h, type: integer, available: order_time, description: "Orders from this buyer in the hour up to this one, inclusive."}
+  - {name: orders_from_ip_last_24h, type: integer, available: order_time, description: "Orders from this order's IP in the 24h up to it, inclusive."}
+  - {name: distinct_cards_on_account, type: integer, available: order_time, description: "Distinct payment instruments seen on the account."}
+  - {name: hold_to_checkout_seconds, type: integer, available: order_time, nullable: true, description: "Seconds between the seat hold being created and the order being placed. The hold TTL is 600s."}
+  - {name: checkout_attempts, type: integer, available: order_time, description: "Checkout attempts, including the one that succeeded."}
+  - {name: payment_method, type: categorical, available: order_time, description: "card, wallet or bank_transfer."}
+  - {name: card_country, type: categorical, available: order_time, nullable: true, description: "Issuing country, when the acquirer returned one. Empty often, and not at random — the missingness is itself an order-time observation. See RISK-R09."}
+  - {name: billing_country_matches_card, type: boolean, available: order_time, nullable: true, description: "Whether the billing address country matches the card's issuing country."}
+  - {name: email_domain_is_disposable, type: boolean, available: order_time, description: "Whether the account's email domain is on the throwaway-mailbox list."}
+  - {name: is_new_device, type: boolean, available: order_time, description: "Whether this device fingerprint is new to the account."}
+  - {name: device_type, type: categorical, available: order_time, description: "desktop, mobile_web, mobile_app or tablet."}
+  - {name: chargeback_filed, type: integer, available: post_review, nullable: true, description: "FORBIDDEN. 1 if a chargeback was filed. Written weeks after the order, empty for every order Support is actually triaging."}
+  - {name: support_tickets_during_review, type: integer, available: post_review, nullable: true, description: "FORBIDDEN. Tickets opened while the order was under investigation. There is no investigation at order time."}
+  - {name: manual_review_outcome, type: categorical, available: post_review, nullable: true, description: "FORBIDDEN. cleared or confirmed_fraud. This is a human's conclusion, which is very nearly the label."}
+
+# --------------------------------------------------------------------- output
+output:
+  predictions_dir_env: PREDICTIONS_DIR
+  description: >
+    `make run` trains on train.csv and writes six CSV files. There is no default
+    for PREDICTIONS_DIR: writing to a guessed directory would grade a stale run.
+  layout:
+    - $PREDICTIONS_DIR/run1/holdout.csv
+    - $PREDICTIONS_DIR/run1/holdout_masked.csv
+    - $PREDICTIONS_DIR/run1/holdout_shard.csv
+    - $PREDICTIONS_DIR/run2/holdout.csv
+    - $PREDICTIONS_DIR/run2/holdout_masked.csv
+    - $PREDICTIONS_DIR/run2/holdout_shard.csv
+  two_runs: >
+    run1 and run2 are two independent executions of the whole pipeline — fit and
+    predict — in two separate operating-system processes. They are how RISK-R07
+    is measured: the grader cannot run your code, so you demonstrate determinism
+    by producing two runs, and identical output is the assertion. run1 is the
+    run that is scored.
+  file_format:
+    header: "order_id,risk_score"
+    rows: >
+      One row per input order, in the same order as the corresponding input file.
+      Exactly the input's order_ids: no extras, no omissions, no duplicates.
+    risk_score: >
+      A decimal in [0, 1] written with exactly six digits after the point, e.g.
+      `0.004310` or `0.871205`. Six decimals so that two runs are compared as
+      text and "deterministic" has one meaning rather than a tolerance.
+
+# --------------------------------------------------------------------- metric
+metric:
+  primary:
+    id: average_precision
+    name: Average precision (area under the precision-recall curve)
+    definition: >
+      sum over k of (R_k - R_{k-1}) * P_k, with the holdout's rows sorted by
+      risk_score descending and ties broken by order_id ascending. For distinct
+      scores this is sklearn.metrics.average_precision_score; where scores tie it
+      follows the tie-break below rather than sklearn's collapsing of a tie to a
+      single threshold. The grader implements it directly, in TypeScript, over
+      the predictions file.
+    why: >
+      Threshold-free, so no cut-off is graded and no cut-off can be tuned; and
+      unlike ROC AUC it is sensitive to the positive class at the top of the
+      ranking, which is the only part of the ranking a human queue ever reaches.
+      Under a 4.4% base rate, ROC AUC flatters a model that is merely good at
+      recognising the 95.6%.
+    tie_breaking: >
+      Equal scores are ordered by order_id ascending. Declared so that a model
+      which emits many identical scores gets one defined answer rather than a
+      favourable one.
+  secondary:
+    id: roc_auc
+    name: Area under the ROC curve
+    why: Reported and floored, but not the bar. A model can have good AUC and a useless queue.
+  bars:
+    average_precision_holdout:
+      min: 0.40
+      measured_on: contract/risk/data/holdout.csv
+    average_precision_holdout_masked:
+      min: 0.40
+      measured_on: contract/risk/data/holdout_masked.csv
+      note: >
+        The same bar on the same orders with the post-review columns emptied. A
+        model that respects RISK-R02 scores identically on both files.
+    roc_auc_holdout:
+      min: 0.80
+      measured_on: contract/risk/data/holdout.csv
+    never_fraud_baseline_must_fail:
+      average_precision: 0.0538
+      note: >
+        A constant score — "never fraud", or "always 0.5", which rank the same —
+        computes to 0.0538 on this holdout under the declared id tie-break (the
+        base rate itself is 0.0441). The bar is more than seven times that on
+        purpose: it cannot be cleared by a constant, and it cannot be cleared by
+        accuracy. conformance/ml asserts the gap rather than trusting it.
+  operational:
+    precision_at_100:
+      min: 0.30
+      note: >
+        Of the hundred orders your model puts at the top of Support's queue, at
+        least thirty must be fraud. This is the number the reporter in the ticket
+        actually feels, and it is graded.
+    per_event_average_precision:
+      min: 0.30
+      events: [event_arena_2000, event_club_100]
+      note: >
+        Average precision computed within each of the two largest events
+        separately. A model that has only learned which event is risky scores
+        well overall and fails here.
+
+# ---------------------------------------------------------------------- rules
+# Stable ids. The grader names them; the README explains the consequence of each.
+rules:
+  - id: RISK-R01
+    title: Predictions cover exactly the holdout
+    statement: >
+      Each predictions file contains exactly the order_ids of its input file —
+      every one, once each, and nothing else.
+
+  - id: RISK-R02
+    title: Features must be available at order time
+    statement: >
+      A model may use only columns marked `available: order_time`. Columns marked
+      `available: post_review` must not be read, imputed, encoded, counted,
+      tested for nullness, or used to select or weight rows.
+
+  - id: RISK-R03
+    title: Fit on train only
+    statement: >
+      Every parameter of the pipeline — model coefficients, imputation
+      statistics, scaler means and variances, encoder vocabularies, category
+      frequencies, target encodings, feature selections, hyperparameters — is
+      estimated from train.csv alone. The holdout files are inputs to prediction
+      and never inputs to fitting.
+
+  - id: RISK-R04
+    title: Accuracy is not the metric
+    statement: >
+      The bar is average precision. A model that predicts the majority class,
+      or a constant, scores the base rate and fails.
+
+  - id: RISK-R05
+    title: Nulling the post-review columns must not change your scores
+    statement: >
+      Your predictions for holdout_masked.csv must be identical to your
+      predictions for holdout.csv. (conformance/ml reports a rank correlation
+      below 0.98 or an absolute difference above 0.02 as a failure; the rule
+      itself is equality.) A model that reads a post-review column cannot
+      satisfy this, and a model that does not read one satisfies it trivially.
+
+  - id: RISK-R06
+    title: A score, not a decision
+    statement: >
+      risk_score is a continuous score in [0, 1]. It must take at least 200
+      distinct values across the holdout, and no single value may cover more
+      than 25% of the rows. Emitting a thresholded 0/1 flag, or rounding to a
+      handful of buckets, fails this.
+
+  - id: RISK-R07
+    title: Determinism
+    statement: >
+      run1 and run2 — two separate executions of fit and predict — must produce
+      byte-identical predictions for all three input files.
+
+  - id: RISK-R08
+    title: Scoring one order must not depend on the others
+    statement: >
+      A prediction for an order depends on that order and on the fitted model,
+      and on nothing else in the batch being scored. holdout_shard.csv is every
+      third row of holdout.csv, so the score you give an order in the shard must
+      equal the score you gave it in the full holdout. Anything fitted, pooled or
+      normalised across the rows being scored — an imputer, a scaler, a category
+      frequency, a target encoding, a quantile cut-off — breaks this.
+
+  - id: RISK-R09
+    title: Missing is data
+    statement: >
+      Several order-time columns are nullable and are not missing at random.
+      Dropping rows because a column is empty is a modelling decision with a
+      measured cost, and it is paid by the positive class. Nothing forbids it —
+      the metric does.
+
+  - id: RISK-R10
+    title: No network, no hosted model, no clock
+    statement: >
+      Training and scoring run offline, with no network access and no call to any
+      hosted model. Nothing in the pipeline may depend on the wall clock, the
+      hostname, the locale, the thread count or an environment variable other
+      than PREDICTIONS_DIR, because any of those makes RISK-R07 unreproducible on
+      another machine.
+
+  - id: RISK-R11
+    title: Integer money stays integer
+    statement: >
+      The money columns are integer minor units. Derive what you like from them —
+      ratios are fine, and a float feature is fine — but do not round-trip a
+      money value through a float and write it back as money. This is the
+      product's rule everywhere, not a rule of this family.
+
+  - id: RISK-R12
+    title: The dataset is fixed
+    statement: >
+      contract/risk/data/ is generated and committed. Do not edit it, do not
+      regenerate it, and do not add rows to train.csv. The grader checks the
+      files against the sha256 digests in MANIFEST.json before it scores
+      anything.

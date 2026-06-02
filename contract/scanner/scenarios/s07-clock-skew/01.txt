@@ -1,0 +1,34 @@
+GATE event_arena_2000
+LINK up
+NOW 1788285600
+# Authoritative time says the doors have not opened yet, even though the local
+# wall clock (NOW, above) says they have.
+TIME 1788269200
+SCAN tkt_arena_A01-05|event_arena_2000|seat_arena_A01-05|1788282000|1788300000|db32ea398d48238c
+#   -> 1 tkt_arena_A01-05 REFUSE NOT_YET_VALID
+TIME 1788285600
+SCAN tkt_arena_A01-01|event_arena_2000|seat_arena_A01-01|1788282000|1788300000|c382b9bf8d6d7bd4
+#   -> 2 tkt_arena_A01-01 ADMIT OK
+LINK down
+# The battery-backed clock dies and comes back reading 2030.
+NOW 1893456000
+SCAN tkt_arena_A01-02|event_arena_2000|seat_arena_A01-02|1788282000|1788300000|86eefc9a50dba012
+#   -> 3 tkt_arena_A01-02 ADMIT OK
+# Now it reads 1970.
+NOW 0
+SCAN tkt_arena_A01-03|event_arena_2000|seat_arena_A01-03|1788282000|1788300000|30c0515d45138cdc
+#   -> 4 tkt_arena_A01-03 ADMIT OK
+# Five hours of real elapsed time: the trusted clock is now past valid_to.
+TICK 18000
+SCAN tkt_arena_A01-04|event_arena_2000|seat_arena_A01-04|1788282000|1788300000|e7210c7049ae884e
+#   -> 5 tkt_arena_A01-04 REFUSE EXPIRED
+# "Correcting" the wall clock back into the window must not reopen the gate.
+NOW 1788285600
+SCAN tkt_arena_A01-06|event_arena_2000|seat_arena_A01-06|1788282000|1788300000|52aa9c042e0d03b2
+#   -> 6 tkt_arena_A01-06 REFUSE EXPIRED
+SCAN tkt_arena_A01-01|event_arena_2000|seat_arena_A01-01|1788282000|1788300000|c382b9bf8d6d7bd4
+#   -> 7 tkt_arena_A01-01 REFUSE DUPLICATE
+LINK up
+TIME 1788303600
+SYNC
+#   -> SYNC 7 0

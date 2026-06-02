@@ -1,0 +1,449 @@
+{
+  "meta": {
+    "password_for_all_users": "password123",
+    "hold_ttl_seconds": 600,
+    "fee_formula": "fee_cents = floor(subtotal_cents * 5 / 100) + 30",
+    "notes": "All timestamps UTC. Money in integer cents. Loaders MUST hash passwords with bcrypt cost 10."
+  },
+  "users": [
+    {
+      "id": "user_admin",
+      "email": "admin@ticketforge.test",
+      "role": "admin",
+      "name": "Ada Admin"
+    },
+    {
+      "id": "user_org_1",
+      "email": "org1@ticketforge.test",
+      "role": "organizer",
+      "name": "Olivia Organizer"
+    },
+    {
+      "id": "user_org_2",
+      "email": "org2@ticketforge.test",
+      "role": "organizer",
+      "name": "Omar Organizer"
+    },
+    {
+      "id": "user_org_3",
+      "email": "org3@ticketforge.test",
+      "role": "organizer",
+      "name": "Opal Organizer"
+    },
+    {
+      "id": "user_buyer_01",
+      "email": "buyer01@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 01"
+    },
+    {
+      "id": "user_buyer_02",
+      "email": "buyer02@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 02"
+    },
+    {
+      "id": "user_buyer_03",
+      "email": "buyer03@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 03"
+    },
+    {
+      "id": "user_buyer_04",
+      "email": "buyer04@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 04"
+    },
+    {
+      "id": "user_buyer_05",
+      "email": "buyer05@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 05"
+    },
+    {
+      "id": "user_buyer_06",
+      "email": "buyer06@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 06"
+    },
+    {
+      "id": "user_buyer_07",
+      "email": "buyer07@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 07"
+    },
+    {
+      "id": "user_buyer_08",
+      "email": "buyer08@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 08"
+    },
+    {
+      "id": "user_buyer_09",
+      "email": "buyer09@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 09"
+    },
+    {
+      "id": "user_buyer_10",
+      "email": "buyer10@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 10"
+    },
+    {
+      "id": "user_buyer_11",
+      "email": "buyer11@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 11"
+    },
+    {
+      "id": "user_buyer_12",
+      "email": "buyer12@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 12"
+    },
+    {
+      "id": "user_buyer_13",
+      "email": "buyer13@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 13"
+    },
+    {
+      "id": "user_buyer_14",
+      "email": "buyer14@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 14"
+    },
+    {
+      "id": "user_buyer_15",
+      "email": "buyer15@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 15"
+    },
+    {
+      "id": "user_buyer_16",
+      "email": "buyer16@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 16"
+    },
+    {
+      "id": "user_buyer_17",
+      "email": "buyer17@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 17"
+    },
+    {
+      "id": "user_buyer_18",
+      "email": "buyer18@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 18"
+    },
+    {
+      "id": "user_buyer_19",
+      "email": "buyer19@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 19"
+    },
+    {
+      "id": "user_buyer_20",
+      "email": "buyer20@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 20"
+    },
+    {
+      "id": "user_buyer_21",
+      "email": "buyer21@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 21"
+    },
+    {
+      "id": "user_buyer_22",
+      "email": "buyer22@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 22"
+    },
+    {
+      "id": "user_buyer_23",
+      "email": "buyer23@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 23"
+    },
+    {
+      "id": "user_buyer_24",
+      "email": "buyer24@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 24"
+    },
+    {
+      "id": "user_buyer_25",
+      "email": "buyer25@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 25"
+    },
+    {
+      "id": "user_buyer_26",
+      "email": "buyer26@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 26"
+    },
+    {
+      "id": "user_buyer_27",
+      "email": "buyer27@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 27"
+    },
+    {
+      "id": "user_buyer_28",
+      "email": "buyer28@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 28"
+    },
+    {
+      "id": "user_buyer_29",
+      "email": "buyer29@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 29"
+    },
+    {
+      "id": "user_buyer_30",
+      "email": "buyer30@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 30"
+    },
+    {
+      "id": "user_buyer_31",
+      "email": "buyer31@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 31"
+    },
+    {
+      "id": "user_buyer_32",
+      "email": "buyer32@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 32"
+    },
+    {
+      "id": "user_buyer_33",
+      "email": "buyer33@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 33"
+    },
+    {
+      "id": "user_buyer_34",
+      "email": "buyer34@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 34"
+    },
+    {
+      "id": "user_buyer_35",
+      "email": "buyer35@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 35"
+    },
+    {
+      "id": "user_buyer_36",
+      "email": "buyer36@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 36"
+    },
+    {
+      "id": "user_buyer_37",
+      "email": "buyer37@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 37"
+    },
+    {
+      "id": "user_buyer_38",
+      "email": "buyer38@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 38"
+    },
+    {
+      "id": "user_buyer_39",
+      "email": "buyer39@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 39"
+    },
+    {
+      "id": "user_buyer_40",
+      "email": "buyer40@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 40"
+    },
+    {
+      "id": "user_buyer_41",
+      "email": "buyer41@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 41"
+    },
+    {
+      "id": "user_buyer_42",
+      "email": "buyer42@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 42"
+    },
+    {
+      "id": "user_buyer_43",
+      "email": "buyer43@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 43"
+    },
+    {
+      "id": "user_buyer_44",
+      "email": "buyer44@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 44"
+    },
+    {
+      "id": "user_buyer_45",
+      "email": "buyer45@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 45"
+    },
+    {
+      "id": "user_buyer_46",
+      "email": "buyer46@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 46"
+    },
+    {
+      "id": "user_buyer_47",
+      "email": "buyer47@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 47"
+    },
+    {
+      "id": "user_buyer_48",
+      "email": "buyer48@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 48"
+    },
+    {
+      "id": "user_buyer_49",
+      "email": "buyer49@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 49"
+    },
+    {
+      "id": "user_buyer_50",
+      "email": "buyer50@ticketforge.test",
+      "role": "buyer",
+      "name": "Buyer 50"
+    }
+  ],
+  "events": [
+    {
+      "id": "event_arena_2000",
+      "organizer_id": "user_org_1",
+      "title": "Arena Night — 2000 Seats",
+      "description": "Canonical large event for seat-map and perf tests. Exactly 2000 seats across sections A–D.",
+      "venue": "TicketForge Arena",
+      "starts_at": "2026-09-01T19:00:00.000Z",
+      "currency": "USD",
+      "base_price_cents": 5000,
+      "status": "published",
+      "seat_layout": {
+        "sections": ["A", "B", "C", "D"],
+        "rows_per_section": 25,
+        "seats_per_row": 20,
+        "total": 2000,
+        "section_price_delta_cents": { "A": 2000, "B": 1000, "C": 0, "D": -500 }
+      }
+    },
+    {
+      "id": "event_club_100",
+      "organizer_id": "user_org_1",
+      "title": "Club Show — 100 Seats",
+      "description": "Oversell concurrency target: exactly 100 seats.",
+      "venue": "The Forge Club",
+      "starts_at": "2026-09-15T21:00:00.000Z",
+      "currency": "USD",
+      "base_price_cents": 2500,
+      "status": "published",
+      "seat_layout": {
+        "sections": ["A"],
+        "rows_per_section": 10,
+        "seats_per_row": 10,
+        "total": 100,
+        "section_price_delta_cents": { "A": 0 }
+      }
+    },
+    {
+      "id": "event_jazz_eur",
+      "organizer_id": "user_org_2",
+      "title": "Jazz Evening",
+      "description": "EUR-priced event for currency handling.",
+      "venue": "Blue Note Hall",
+      "starts_at": "2026-10-01T18:30:00.000Z",
+      "currency": "EUR",
+      "base_price_cents": 3500,
+      "status": "published",
+      "seat_layout": {
+        "sections": ["A", "B"],
+        "rows_per_section": 5,
+        "seats_per_row": 10,
+        "total": 100,
+        "section_price_delta_cents": { "A": 500, "B": 0 }
+      }
+    },
+    {
+      "id": "event_draft",
+      "organizer_id": "user_org_2",
+      "title": "Draft Only Event",
+      "description": "Not published — buyers should not purchase.",
+      "venue": "TBD",
+      "starts_at": "2026-11-01T20:00:00.000Z",
+      "currency": "USD",
+      "base_price_cents": 1000,
+      "status": "draft",
+      "seat_layout": {
+        "sections": ["A"],
+        "rows_per_section": 2,
+        "seats_per_row": 5,
+        "total": 10,
+        "section_price_delta_cents": { "A": 0 }
+      }
+    },
+    {
+      "id": "event_cancelled",
+      "organizer_id": "user_org_3",
+      "title": "Cancelled Festival",
+      "description": "Cancelled event.",
+      "venue": "Outdoor Park",
+      "starts_at": "2026-08-01T16:00:00.000Z",
+      "currency": "GBP",
+      "base_price_cents": 4000,
+      "status": "cancelled",
+      "seat_layout": {
+        "sections": ["A"],
+        "rows_per_section": 4,
+        "seats_per_row": 5,
+        "total": 20,
+        "section_price_delta_cents": { "A": 0 }
+      }
+    }
+  ],
+  "discounts": [
+    {
+      "code": "SAVE10",
+      "percent_off": 10,
+      "active": true,
+      "stackable": false,
+      "event_id": null
+    },
+    {
+      "code": "ARENA20",
+      "percent_off": 20,
+      "active": true,
+      "stackable": false,
+      "event_id": "event_arena_2000"
+    },
+    {
+      "code": "EXPIRED0",
+      "percent_off": 50,
+      "active": false,
+      "stackable": false,
+      "event_id": null
+    }
+  ]
+}

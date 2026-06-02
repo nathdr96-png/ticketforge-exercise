@@ -1,0 +1,271 @@
+# The rules the turnstile scanner is graded on, with stable ids.
+#
+# A rule id never changes meaning. conformance/edge names the id in every test
+# title, and a bug report describes the symptom of violating one without ever
+# naming it. That chain is the whole point: a rule nobody can assert from the
+# outside does not belong in this file, and the ones that could not be graded
+# objectively are listed at the bottom under `not_graded` rather than quietly
+# dropped.
+#
+# Every rule here is part of the assessment. Many are checked automatically by
+# conformance/edge/, which every candidate receives and can run; the others are assessed
+# at review. All of them are written down in full, so nobody is asked to guess:
+# a green visible suite means the checked rules pass, not that every rule does.
+
+version: 1
+
+rules:
+  SCAN-R01:
+    statement: >
+      A ticket is admitted at most once. The second and every later presentation
+      of an already-admitted ticket is REFUSE DUPLICATE.
+    why: >
+      This is the product. A seat sold once must admit one person; a scanner
+      that admits a photographed barcode twice turns every ticket into two.
+    scenarios: [s02-duplicate-at-the-door, s07-clock-skew, s10-bad-tickets]
+
+  SCAN-R02:
+    statement: >
+      The admitted set survives a clean restart. A device that exits at end of
+      input and is started again against the same state directory refuses a
+      ticket the previous process admitted, and continues the same sequence
+      number, link state, gate commissioning and time anchor.
+    why: >
+      Door scanners are power-cycled, re-flashed and swapped mid-event. A device
+      that keeps the admitted set in RAM forgets everyone who came in before the
+      reboot, and the first thing that happens next is a duplicate admission.
+    scenarios: [s03-restart-remembers]
+
+  SCAN-R03:
+    statement: >
+      State is durable BEFORE the decision that produced it is announced. After
+      an ABORT — an immediate termination with no flush and no exit handler —
+      the next process sees every decision the previous one printed.
+    why: >
+      Write-behind buffering passes every clean-restart test and fails the one
+      night the mains go. The decision on stdout is a promise to the person
+      walking through the turnstile; it has to be on the flash before it is made.
+    scenarios: [s04-power-loss]
+
+  SCAN-R04:
+    statement: >
+      Scans taken while the link is down are queued durably and uploaded in FIFO
+      order when it returns. uploaded.log contains every queued record exactly
+      once, with ascending record ids and no gaps and no repeats.
+    why: >
+      The network at a venue door is unreliable and the door cannot wait for it.
+      Losing a record loses a reconciliation line; duplicating one double-counts
+      an admission in the back office. Both are found in the same place, which
+      is why uploaded.log exists at all.
+    scenarios: [s05-offline-queue-and-sync, s06-queue-bound]
+
+  SCAN-R05:
+    statement: >
+      SYNC is idempotent. Syncing an empty queue uploads nothing. Syncing while
+      the link is down uploads nothing, leaves the queue intact and counts in
+      sync_offline_total.
+    why: >
+      Sync is driven by a retry loop that cannot know whether the last attempt
+      landed. If a second attempt re-sends, every flaky link turns into inflated
+      attendance figures.
+    scenarios: [s01-happy-door, s05-offline-queue-and-sync]
+
+  SCAN-R06:
+    statement: >
+      Inbound replay is idempotent. A REPLAY of a ticket the device already knows
+      changes nothing at all. A REPLAY of a ticket it does not know is absorbed
+      into the admitted set, so the next local scan of that ticket is DUPLICATE.
+      A REPLAY never queues a record, never increments admitted_total and never
+      removes anything from the admitted set.
+    why: >
+      On reconnect the server re-pushes what it already holds, and it pushes what
+      the other gates admitted. A device that treats inbound records as new
+      duplicates its own upload stream; a device that rebuilds its admitted set
+      from the inbound batch lets the same ticket in at both doors.
+    scenarios: [s08-reconnect-replay-idempotent]
+
+  SCAN-R07:
+    statement: >
+      The offline queue is bounded by --queue-max. At the bound a new scan is
+      still decided and still admitted; the OLDEST unsynced record is evicted and
+      queue_evicted_total counts every eviction. The admitted set is never
+      evicted.
+    why: >
+      The device has finite flash. Closing the door because a log is full is a
+      worse failure than losing a reconciliation record — but losing it silently
+      is worse than both, because nobody can say afterwards how much of the night
+      is unaccounted for. So the loss is bounded, counted and reportable.
+    scenarios: [s06-queue-bound]
+
+  SCAN-R08:
+    statement: >
+      Nothing is lost without being counted:
+      queued_total == uploaded_total + queue_depth + queue_evicted_total,
+      measured as a delta across the run.
+    why: >
+      This is the conservation law that makes SCAN-R04 and SCAN-R07 checkable
+      without trusting the implementation's own story. Every scan the device
+      queued either went upstream, is still waiting, or was deliberately dropped
+      and counted. There is no fourth outcome.
+    scenarios: [all]
+
+  SCAN-R09:
+    statement: >
+      Admission validity is decided against the ticket's own signed window and
+      the device's TRUSTED clock — the last authoritative time from upstream,
+      carried forward by monotonic elapsed time. The local wall clock never
+      decides an admission.
+    why: >
+      Turnstile hardware keeps time with a coin cell and coin cells die. A device
+      that trusts its own clock admits every expired ticket the moment the clock
+      resets to 1970, and refuses every valid one when it jumps to 2030. Worse,
+      the clock is the one input an attacker at the door can influence.
+    scenarios: [s07-clock-skew]
+
+  SCAN-R10:
+    statement: >
+      The admission window is signed and cannot be widened. A blob whose
+      signature does not match its fields is REFUSE BAD_SIGNATURE, checked before
+      the window is even looked at.
+    why: >
+      The window is the only thing standing between a ticket and unlimited reuse
+      across nights. If the device believes the fields instead of the signature,
+      a printed barcode with valid_to moved a day out is a season pass.
+    scenarios: [s10-bad-tickets]
+
+  SCAN-R11:
+    statement: >
+      A gate admits only its own event. A correctly signed ticket for another
+      event is REFUSE WRONG_EVENT. A SCAN before the gate is commissioned is
+      REFUSE NOT_COMMISSIONED. A SCAN with no trusted time is REFUSE
+      NO_TRUSTED_TIME.
+    why: >
+      Venues run two rooms on the same night off the same hardware pool. An
+      uncommissioned device that defaults to admitting is the configuration
+      mistake that fills the wrong room.
+    scenarios: [s10-bad-tickets]
+
+  SCAN-R12:
+    statement: >
+      A malformed blob is REFUSE MALFORMED with "-" in the ticket id field, and
+      the device keeps reading. Malformed covers: the wrong number of fields, a
+      non-numeric or negative window value, valid_from after valid_to, any field
+      over its declared maximum, and a blob over the declared 256-byte maximum.
+      An unknown event verb, and a transcript line over the declared 1024-byte
+      maximum, are each skipped and counted in unknown_event_total.
+    why: >
+      This is what a damaged barcode, a foreign ticketing system and a
+      half-upgraded server all look like from the device's side. The door must
+      refuse and carry on — not stop, and not accept because the parser gave up
+      halfway.
+    scenarios: [s10-bad-tickets]
+
+  SCAN-R13:
+    statement: >
+      No field is copied anywhere before its length has been checked. The three
+      hostile lines in s10-bad-tickets are refused and the process still exits 0
+      with an empty stderr under AddressSanitizer + UndefinedBehaviorSanitizer.
+      The load-bearing one is the 200-byte ticket id inside a 243-byte blob: the
+      BLOB is under its declared 256-byte maximum, so a device that measures the
+      blob and then copies the field reaches it. The 310-byte id (in a 370-byte
+      blob) and the 900-byte line are over their own maxima and are refused
+      before any field is looked at.
+    why: >
+      The device parses attacker-supplied bytes at a public door. A fixed buffer
+      filled before it is measured is the oldest bug in the trade, and the only
+      honest way to say it is absent is to run the whole corpus instrumented and
+      require the run to come out clean.
+    scenarios: [s10-bad-tickets, all]
+
+  SCAN-R14:
+    statement: >
+      Memory safety is part of correctness. Across every scenario, every segment
+      exits 0 and writes nothing to stderr. No overflow, no leak, no
+      use-after-free, no undefined behaviour.
+    why: >
+      A leak on a device with 64 KiB of RAM is a crash at the busiest moment of
+      the evening, and a crash at a turnstile is a queue in the street. Grading
+      it as a lint would let it pass whenever the lint did not look; grading it as
+      an empty stderr under a sanitizer makes it a property of the run.
+    scenarios: [all]
+
+  SCAN-R15:
+    statement: >
+      Counters are exact integers up to 2^53 - 1 and never wrap. A device handed
+      over with next_seq six short of 2^32 and next_record_id six short of 2^48
+      carries both across the boundary exactly, through a persist and a reload.
+    why: >
+      A sequence number that wraps makes the door log unorderable and makes two
+      different scans indistinguishable in the back office. A record id that
+      wraps makes an upload acknowledge the wrong record. Neither shows up in
+      testing, because nobody tests the four-billionth scan — unless the counters
+      can be seeded, which is why this device reads them off its flash.
+    scenarios: [s09-counter-bounds]
+
+  SCAN-R16:
+    statement: >
+      The sequence number increments exactly once per SCAN — including refused,
+      duplicate and malformed scans — and never for any other event. Every scan
+      is queued, so queued_total == scans_total as a delta, and
+      scans_total == admitted_total + refused_total.
+    why: >
+      "How many people did this door see" and "how many did it let in" are
+      different questions and the venue asks both. A device that only logs
+      admissions cannot answer the first, and a device that renumbers around
+      refusals produces a log with holes in it that reads as lost records.
+    scenarios: [all]
+
+  SCAN-R17:
+    statement: >
+      admitted.log is append-only. Its contents after segment N are a prefix of
+      its contents after segment N+1, byte for byte, in every multi-segment
+      scenario.
+    why: >
+      It is the evidence of who came in. A device that rewrites it on startup — to
+      compact it, to sort it, to rebuild it from the queue — destroys the one
+      record that cannot be reconstructed from anywhere else, and does it at
+      exactly the moment nobody is watching.
+    scenarios: [s03-restart-remembers, s04-power-loss, s08-reconnect-replay-idempotent]
+
+# Rules that belong to the product but that this grading surface cannot assert
+# objectively. They are written down so that a reviewer knows the omission is a
+# decision and not an oversight, and so that an interviewer can ask about them
+# out loud instead of pretending a passing suite covered them.
+not_graded:
+  - id: SCAN-X01
+    statement: >
+      The device must not hold the whole admitted set in RAM: a season of scans
+      has to fit in 64 KiB.
+    why_not: >
+      Peak RSS is a property of the machine, not of the program. gcc's
+      -fsanitize=address inflates it by design, the grading host is a developer
+      laptop under load, and any threshold tight enough to catch a real
+      regression would fail on a slower host. Graded by reading the code.
+  - id: SCAN-X02
+    statement: >
+      fsync is actually called, rather than the data merely reaching the page
+      cache.
+    why_not: >
+      The ABORT scenario proves the write reached the kernel, which is what
+      survives process death. It cannot prove it reached the flash, because that
+      needs the power actually cut — and without valgrind or a syscall tracer on
+      this host there is no way to assert the call without inspecting the source.
+      Observable consequence graded; mechanism reviewed.
+  - id: SCAN-X03
+    statement: >
+      Decisions are made within a bounded latency so the turnstile does not
+      visibly stall.
+    why_not: >
+      Timing on a contended host is noise, and the family has no perf budget of
+      its own the way contract/perf-budget.yaml serves the API. A per-scan
+      budget would either be loose enough to measure nothing or tight enough to
+      fail at random.
+  - id: SCAN-X04
+    statement: >
+      The signature is a real MAC, so a ticket cannot be forged by anyone who
+      reads this file.
+    why_not: >
+      Deliberately false here. The keyed FNV-1a digest exists so that three
+      languages with no shared crypto library agree byte for byte; it is a
+      fixture, not a security control, and interface.yaml says so where somebody
+      might otherwise copy it.

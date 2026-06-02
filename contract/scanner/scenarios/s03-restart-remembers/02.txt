@@ -1,0 +1,11 @@
+# Segment 2 is a NEW PROCESS against the same state directory. Nothing is
+# repeated here: the gate, the link state, the time anchor, the sequence number
+# and the admitted set all have to come off the disk.
+SCAN tkt_arena_A01-01|event_arena_2000|seat_arena_A01-01|1788282000|1788300000|c382b9bf8d6d7bd4
+#   -> 4 tkt_arena_A01-01 REFUSE DUPLICATE
+SCAN tkt_arena_A01-04|event_arena_2000|seat_arena_A01-04|1788282000|1788300000|e7210c7049ae884e
+#   -> 5 tkt_arena_A01-04 ADMIT OK
+LINK up
+TIME 1788286200
+SYNC
+#   -> SYNC 5 0

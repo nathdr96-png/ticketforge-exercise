@@ -1,0 +1,35 @@
+# TicketForge performance budgets — Tier 4 objective gates
+# Measured against seed data (event with 2,000 seats) on a warm instance.
+
+version: 1
+
+api:
+  GET /events:
+    p95_ms: 100
+  GET /events/{id}/seats:
+    # Seat map for the 2,000-seat event, page size 100
+    p95_ms: 150
+    max_n_plus_one: 0
+    require_index_scan: true
+  POST /holds:
+    p95_ms: 200
+  POST /orders:
+    p95_ms: 250
+  GET /orders/{id}:
+    p95_ms: 80
+  GET /reports/revenue:
+    p95_ms: 300
+
+web:
+  initial_js_bundle_gzip_kb: 250
+  lighthouse_perf_min: 80
+
+runtime:
+  # Peak RSS of the API process under the concurrency suite
+  max_rss_mb: 512
+
+concurrency:
+  parallel_holds_same_seat: 200
+  expected_winners: 1
+  oversell_purchases: 500
+  oversell_capacity: 100

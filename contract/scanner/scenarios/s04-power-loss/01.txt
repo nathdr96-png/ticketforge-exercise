@@ -1,0 +1,14 @@
+GATE event_arena_2000
+LINK up
+NOW 1788285600
+TIME 1788285600
+LINK down
+SCAN tkt_arena_A01-01|event_arena_2000|seat_arena_A01-01|1788282000|1788300000|c382b9bf8d6d7bd4
+#   -> 1 tkt_arena_A01-01 ADMIT OK
+SCAN tkt_arena_A01-02|event_arena_2000|seat_arena_A01-02|1788282000|1788300000|86eefc9a50dba012
+#   -> 2 tkt_arena_A01-02 ADMIT OK
+SCAN tkt_arena_A01-02|event_arena_2000|seat_arena_A01-02|1788282000|1788300000|86eefc9a50dba012
+#   -> 3 tkt_arena_A01-02 REFUSE DUPLICATE
+ABORT
+# The mains go. No flush, no cleanup, no exit handler: everything the device has
+# already answered for must ALREADY be on the disk.

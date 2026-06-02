@@ -1,0 +1,28 @@
+# This device is handed to us already commissioned and already old: see
+# initial-state/counters.json. Its next sequence number is 4294967290, six short
+# of 2^32, and its next record id is six short of 2^48.
+LINK down
+SCAN tkt_arena_A01-01|event_arena_2000|seat_arena_A01-01|1788282000|1788300000|c382b9bf8d6d7bd4
+#   -> 4294967290 tkt_arena_A01-01 ADMIT OK
+SCAN tkt_arena_A01-02|event_arena_2000|seat_arena_A01-02|1788282000|1788300000|86eefc9a50dba012
+#   -> 4294967291 tkt_arena_A01-02 ADMIT OK
+SCAN tkt_arena_A01-02|event_arena_2000|seat_arena_A01-02|1788282000|1788300000|86eefc9a50dba012
+#   -> 4294967292 tkt_arena_A01-02 REFUSE DUPLICATE
+SCAN tkt_arena_A01-03|event_arena_2000|seat_arena_A01-03|1788282000|1788300000|30c0515d45138cdc
+#   -> 4294967293 tkt_arena_A01-03 ADMIT OK
+SCAN tkt_arena_A01-04|event_arena_2000|seat_arena_A01-04|1788282000|1788300000|e7210c7049ae884e
+#   -> 4294967294 tkt_arena_A01-04 ADMIT OK
+SCAN tkt_arena_A01-05|event_arena_2000|seat_arena_A01-05|1788282000|1788300000|db32ea398d48238c
+#   -> 4294967295 tkt_arena_A01-05 ADMIT OK        2^32 - 1
+SCAN tkt_arena_A01-06|event_arena_2000|seat_arena_A01-06|1788282000|1788300000|52aa9c042e0d03b2
+#   -> 4294967296 tkt_arena_A01-06 ADMIT OK        2^32: a 32-bit counter is 0 here
+SCAN tkt_arena_A01-07|event_arena_2000|seat_arena_A01-07|1788282000|1788300000|8eae9ab7a6aff0e4
+#   -> 4294967297 tkt_arena_A01-07 ADMIT OK
+SCAN tkt_arena_A01-08|event_arena_2000|seat_arena_A01-08|1788282000|1788300000|5e39c0daa232c466
+#   -> 4294967298 tkt_arena_A01-08 ADMIT OK
+SCAN tkt_arena_A01-09|event_arena_2000|seat_arena_A01-09|1788282000|1788300000|b279e3eda41e5a04
+#   -> 4294967299 tkt_arena_A01-09 ADMIT OK
+LINK up
+TIME 1788285600
+SYNC
+#   -> SYNC 10 0
