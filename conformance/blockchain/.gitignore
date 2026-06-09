@@ -1,0 +1,11 @@
+node_modules/
+# Runtime leftovers of a grading run. The chain's port handoff file and log are
+# written by globalSetup.ts and removed on teardown; the two hardhat paths exist
+# only because `hardhat node` insists on having somewhere to put them, and
+# nothing is ever compiled here (see hardhat.config.cjs).
+.chain-rpc-*.json
+.chain-node.log
+.hardhat-cache/
+.hardhat-artifacts/
+.verify-report-*.json
+.grade-report-*.json

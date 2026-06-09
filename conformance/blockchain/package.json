@@ -1,0 +1,20 @@
+{
+  "name": "@ticketforge/conformance-blockchain",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "attacker": "node tools/build-attacker.mjs"
+  },
+  "dependencies": {
+    "ethers": "^6.13.4",
+    "fast-check": "^3.23.1",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "hardhat": "^2.22.17",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  },
+  "type": "module"
+}

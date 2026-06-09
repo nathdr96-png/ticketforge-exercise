@@ -1,0 +1,46 @@
+[
+  {
+    "event_id": "event_jazz_eur",
+    "organizer_id": "user_org_2",
+    "currency": "EUR",
+    "orders_count": 3,
+    "seats_sold": 6,
+    "gross_cents": 23500,
+    "discounts_cents": 350,
+    "fees_cents": 1247,
+    "net_cents": 24397
+  },
+  {
+    "event_id": "event_cancelled",
+    "organizer_id": "user_org_3",
+    "currency": "GBP",
+    "orders_count": 1,
+    "seats_sold": 2,
+    "gross_cents": 8000,
+    "discounts_cents": 0,
+    "fees_cents": 430,
+    "net_cents": 8430
+  },
+  {
+    "event_id": "event_arena_2000",
+    "organizer_id": "user_org_1",
+    "currency": "USD",
+    "orders_count": 6,
+    "seats_sold": 12,
+    "gross_cents": 70500,
+    "discounts_cents": 5450,
+    "fees_cents": 3432,
+    "net_cents": 68482
+  },
+  {
+    "event_id": "event_club_100",
+    "organizer_id": "user_org_1",
+    "currency": "USD",
+    "orders_count": 2,
+    "seats_sold": 3,
+    "gross_cents": 7500,
+    "discounts_cents": 250,
+    "fees_cents": 422,
+    "net_cents": 7672
+  }
+]

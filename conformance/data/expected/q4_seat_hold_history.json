@@ -1,0 +1,30 @@
+[
+  {
+    "event_id": "event_arena_2000",
+    "holds_observed": 13,
+    "seat_hold_pairs": 24,
+    "seats_ever_held": 22,
+    "seats_expired_never_ordered": 3
+  },
+  {
+    "event_id": "event_cancelled",
+    "holds_observed": 3,
+    "seat_hold_pairs": 4,
+    "seats_ever_held": 4,
+    "seats_expired_never_ordered": 1
+  },
+  {
+    "event_id": "event_club_100",
+    "holds_observed": 3,
+    "seat_hold_pairs": 5,
+    "seats_ever_held": 5,
+    "seats_expired_never_ordered": 2
+  },
+  {
+    "event_id": "event_jazz_eur",
+    "holds_observed": 5,
+    "seat_hold_pairs": 9,
+    "seats_ever_held": 9,
+    "seats_expired_never_ordered": 0
+  }
+]

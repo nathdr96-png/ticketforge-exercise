@@ -1,0 +1,17 @@
+1 tkt_arena_A01-01 ADMIT OK
+2 tkt_arena_A01-02 ADMIT OK
+3 tkt_arena_A01-03 ADMIT OK
+4 tkt_arena_A01-04 ADMIT OK
+5 tkt_arena_A01-05 ADMIT OK
+6 tkt_arena_A01-06 ADMIT OK
+7 tkt_arena_A01-07 ADMIT OK
+8 tkt_arena_A01-08 ADMIT OK
+9 tkt_arena_A01-09 ADMIT OK
+10 tkt_arena_A01-10 ADMIT OK
+11 tkt_arena_A01-11 ADMIT OK
+12 tkt_arena_A01-12 ADMIT OK
+SYNC 0 12
+SYNC 12 0
+SYNC 0 0
+13 tkt_arena_A01-13 ADMIT OK
+SYNC 1 0

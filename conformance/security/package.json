@@ -1,0 +1,10 @@
+{
+  "name": "@ticketforge/conformance-security",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:hardening": "vitest run --config vitest.hardening.config.ts"
+  },
+  "devDependencies": { "typescript": "^5.6.3", "vitest": "^2.1.5" }
+}

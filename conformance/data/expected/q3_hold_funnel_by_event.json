@@ -1,0 +1,38 @@
+[
+  {
+    "event_id": "event_arena_2000",
+    "holds_created": 13,
+    "holds_converted": 7,
+    "holds_expired": 3,
+    "holds_released": 1,
+    "holds_active": 2,
+    "conversion_bps": 5385
+  },
+  {
+    "event_id": "event_cancelled",
+    "holds_created": 3,
+    "holds_converted": 2,
+    "holds_expired": 1,
+    "holds_released": 0,
+    "holds_active": 0,
+    "conversion_bps": 6667
+  },
+  {
+    "event_id": "event_club_100",
+    "holds_created": 3,
+    "holds_converted": 2,
+    "holds_expired": 1,
+    "holds_released": 0,
+    "holds_active": 0,
+    "conversion_bps": 6667
+  },
+  {
+    "event_id": "event_jazz_eur",
+    "holds_created": 5,
+    "holds_converted": 3,
+    "holds_expired": 0,
+    "holds_released": 1,
+    "holds_active": 1,
+    "conversion_bps": 6000
+  }
+]

@@ -1,0 +1,82 @@
+[
+  {
+    "sales_day": "2026-07-01",
+    "event_id": "event_arena_2000",
+    "currency": "USD",
+    "orders_count": 2,
+    "gross_cents": 21000,
+    "net_cents": 20640
+  },
+  {
+    "sales_day": "2026-07-01",
+    "event_id": "event_cancelled",
+    "currency": "GBP",
+    "orders_count": 1,
+    "gross_cents": 8000,
+    "net_cents": 8430
+  },
+  {
+    "sales_day": "2026-07-01",
+    "event_id": "event_jazz_eur",
+    "currency": "EUR",
+    "orders_count": 1,
+    "gross_cents": 8000,
+    "net_cents": 8430
+  },
+  {
+    "sales_day": "2026-07-02",
+    "event_id": "event_arena_2000",
+    "currency": "USD",
+    "orders_count": 1,
+    "gross_cents": 18000,
+    "net_cents": 15150
+  },
+  {
+    "sales_day": "2026-07-02",
+    "event_id": "event_club_100",
+    "currency": "USD",
+    "orders_count": 1,
+    "gross_cents": 5000,
+    "net_cents": 5280
+  },
+  {
+    "sales_day": "2026-07-03",
+    "event_id": "event_arena_2000",
+    "currency": "USD",
+    "orders_count": 2,
+    "gross_cents": 24500,
+    "net_cents": 25312
+  },
+  {
+    "sales_day": "2026-07-03",
+    "event_id": "event_jazz_eur",
+    "currency": "EUR",
+    "orders_count": 1,
+    "gross_cents": 3500,
+    "net_cents": 3337
+  },
+  {
+    "sales_day": "2026-07-04",
+    "event_id": "event_arena_2000",
+    "currency": "USD",
+    "orders_count": 1,
+    "gross_cents": 7000,
+    "net_cents": 7380
+  },
+  {
+    "sales_day": "2026-07-04",
+    "event_id": "event_club_100",
+    "currency": "USD",
+    "orders_count": 1,
+    "gross_cents": 2500,
+    "net_cents": 2392
+  },
+  {
+    "sales_day": "2026-07-04",
+    "event_id": "event_jazz_eur",
+    "currency": "EUR",
+    "orders_count": 1,
+    "gross_cents": 12000,
+    "net_cents": 12630
+  }
+]

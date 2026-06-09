@@ -1,0 +1,5 @@
+1 tkt_arena_A01-01 ADMIT OK
+2 tkt_arena_A01-01 REFUSE DUPLICATE
+3 tkt_arena_A01-02 ADMIT OK
+4 tkt_arena_A01-01 REFUSE DUPLICATE
+SYNC 4 0
