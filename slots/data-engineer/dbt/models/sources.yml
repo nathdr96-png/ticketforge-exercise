@@ -1,0 +1,27 @@
+version: 2
+
+sources:
+  - name: ticketforge
+    description: >
+      The operational tables, owned by contract/schema.sql. This project reads
+      them and never writes to them: the schema and the seed belong to the
+      platform team, and every other slot in the repo depends on them being
+      exactly what the contract says.
+    schema: public
+    tables:
+      - name: users
+      - name: events
+      - name: seats
+      - name: holds
+      - name: hold_seats
+      - name: orders
+        description: >
+          `status` is paid or refunded.
+      - name: order_seats
+        description: >
+          One row per seat of an order.
+      - name: discounts
+      - name: outbox_events
+        description: >
+          The event log. `published_at` is a delivery detail and is never a
+          filter in analytics.

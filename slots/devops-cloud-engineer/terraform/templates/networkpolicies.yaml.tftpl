@@ -1,0 +1,10 @@
+# TODO(FEAT-31): this namespace has no network policies.
+#
+# Every pod in it can therefore reach every other pod, and anything in it can
+# open a connection to Postgres. See the ticket for what has to be true before
+# this is done; contract/deploy/policy.yaml DEP-019 is the rule the suite
+# asserts.
+#
+# Rendering an empty document rather than removing the local_file resource, so
+# that index.json keeps declaring the artifact and `terraform apply` still
+# succeeds.

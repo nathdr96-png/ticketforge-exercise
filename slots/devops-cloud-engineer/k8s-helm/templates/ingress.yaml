@@ -1,0 +1,50 @@
+{{/*
+The one externally reachable object in the chart. Two hosts, both TLS, both
+routed to ClusterIP Services.
+
+The browser reaches the API through here, not through a Service of its own, so
+there is exactly one place where request limits, TLS and WAF rules have to be
+configured — and exactly one place to look when something from outside is
+getting in.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "tf.fullname" . }}
+  labels:
+    {{- include "tf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+    # Checkout is idempotent (Idempotency-Key in contract/openapi.yaml) but a
+    # proxy-level retry still turns one buyer's click into two POSTs against a
+    # seat hold. Let the client retry; the ingress must not.
+    nginx.ingress.kubernetes.io/proxy-next-upstream: "off"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.webHost }}
+        - {{ .Values.ingress.apiHost }}
+      secretName: {{ .Values.ingress.tlsSecretName }}
+  rules:
+    - host: {{ .Values.ingress.webHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tf.fullname" . }}-web
+                port:
+                  name: http
+    - host: {{ .Values.ingress.apiHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tf.fullname" . }}-api
+                port:
+                  name: http

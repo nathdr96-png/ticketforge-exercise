@@ -1,0 +1,54 @@
+{{/*
+Schema migration, as a pre-install/pre-upgrade hook so it completes before the
+API rolls. An API pod that starts against a schema it does not recognise fails
+its readiness probe for reasons that look like an application bug.
+
+restartPolicy: Never with an explicit backoffLimit, because the default for a
+failed migration is to retry forever — holding locks against a live database
+while the API queues behind them.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "tf.fullname" . }}-migrate
+  labels:
+    {{- include "tf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ .Values.migrate.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrate.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "tf.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      securityContext:
+        {{- include "tf.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "tf.image" (dict "ctx" . "key" "api") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "dist/db/migrate.js"]
+          securityContext:
+            {{- include "tf.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: NODE_ENV
+              value: production
+            {{- include "tf.secretEnv" (dict "ctx" . "name" "DATABASE_URL" "key" .Values.secrets.keys.databaseUrl) | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

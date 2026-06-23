@@ -1,0 +1,21 @@
+apiVersion: v2
+name: ticketforge
+description: >-
+  TicketForge — event ticketing with time-limited seat holds. The API, the web
+  app, the hold-expiry sweeper and the schema migration, as one deployable unit.
+type: application
+# The chart's own version. Bumped when the templates change.
+version: 1.4.0
+# The application version this chart's default values deploy. Kept in step with
+# values.yaml image tags: a chart that says 1.14.3 and deploys :latest is a lie
+# told to whoever reads `helm list`.
+appVersion: "1.14.3"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/ticketforge/ticketforge
+sources:
+  - https://github.com/ticketforge/ticketforge
+maintainers:
+  - name: TicketForge Platform
+    email: platform@ticketforge.test
+annotations:
+  ticketforge.io/contract: contract/deploy/topology.yaml

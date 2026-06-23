@@ -1,0 +1,27 @@
+{
+  "name": "@ticketforge/slot-blockchain-solidity-hardhat",
+  "private": true,
+  "version": "1.0.0",
+  "description": "TicketForge on-chain primary ticket sale — Solidity + Hardhat",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "deploy": "hardhat run scripts/deploy.ts --network hardhat",
+    "lint": "solhint 'contracts/**/*.sol' && tsc --noEmit"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.1.2",
+    "@nomicfoundation/hardhat-ethers": "^3.0.8",
+    "@openzeppelin/contracts": "^5.1.0",
+    "@types/chai": "^4.3.20",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.9.0",
+    "chai": "^4.5.0",
+    "ethers": "^6.13.4",
+    "hardhat": "^2.22.17",
+    "solhint": "^5.0.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3",
+    "yaml": "^2.9.1"
+  }
+}

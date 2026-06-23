@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tf.fullname" . }}-api
+  labels:
+    {{- include "tf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "tf.selectorLabels" (dict "ctx" . "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "tf.labels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      securityContext:
+        {{- include "tf.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "tf.selectorLabels" (dict "ctx" . "component" "api") | nindent 14 }}
+      containers:
+        - name: api
+          image: {{ include "tf.image" (dict "ctx" . "key" "api") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "tf.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.port }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.api.port | quote }}
+            - name: NODE_ENV
+              value: production
+            # The countdown the API advertises to a buyer. The sweeper reads the
+            # SAME value — see worker-deployment.yaml.
+            - name: HOLD_TTL_SECONDS
+              value: {{ .Values.hold.ttlSeconds | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.redis.url | quote }}
+            {{- include "tf.secretEnv" (dict "ctx" . "name" "DATABASE_URL" "key" .Values.secrets.keys.databaseUrl) | nindent 12 }}
+            {{- include "tf.secretEnv" (dict "ctx" . "name" "JWT_SECRET" "key" .Values.secrets.keys.jwtSecret) | nindent 12 }}
+          # Readiness is GET /health on the port this container actually listens
+          # on. Both halves matter: a probe on "/" reports a process that bound a
+          # socket, and a probe on the wrong port reports nothing at all.
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.api.healthPath }}
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.api.healthPath }}
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 3
+            # Deliberately slacker than readiness: a slow dependency should take
+            # a pod out of the load balancer, not restart it.
+            failureThreshold: 6
+          startupProbe:
+            httpGet:
+              path: {{ .Values.api.healthPath }}
+              port: http
+            periodSeconds: 3
+            failureThreshold: 30
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30

@@ -1,0 +1,92 @@
+{{/*
+The hold-expiry sweeper.
+
+This is the only workload in the chart whose replica count is a correctness
+property. It expires holds past their TTL, returns their seats to the pool and
+writes one `hold.expired` row to the outbox per hold. Run two of them and you get
+either a duplicated outbox event — which double-counts in every report built on
+it, including the data family's q4_seat_hold_history — or a seat released a
+second time after a buyer has already re-held it, which oversells.
+
+`replicas: 1` is necessary and not sufficient. The default rolling update brings
+the replacement pod up *before* the old pod goes down, so every deploy is a
+window with two sweepers in it. `type: Recreate` closes that window: the old pod
+terminates first, the namespace is briefly without a sweeper, and holds expire a
+few seconds late instead of twice. Late is recoverable; twice is not.
+
+The alternative — a Postgres advisory lock or a Lease, so that only one of N
+pods sweeps — is a better answer at scale and is what the
+`ticketforge.io/singleton-mechanism` annotation is for. The product does not
+need it yet.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tf.fullname" . }}-hold-expiry-worker
+  labels:
+    {{- include "tf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hold-expiry-worker
+  annotations:
+    ticketforge.io/singleton-mechanism: >-
+      Recreate rollout strategy with replicas=1: the outgoing pod is fully
+      terminated before the incoming pod starts, so at most one sweeper exists
+      at any instant.
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "tf.selectorLabels" (dict "ctx" . "component" "hold-expiry-worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "tf.labels" . | nindent 8 }}
+        app.kubernetes.io/component: hold-expiry-worker
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      securityContext:
+        {{- include "tf.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: hold-expiry-worker
+          image: {{ include "tf.image" (dict "ctx" . "key" "worker") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "dist/workers/hold-expiry.js"]
+          securityContext:
+            {{- include "tf.containerSecurityContext" . | nindent 12 }}
+          env:
+            # The SAME value the API advertises to buyers. If these two numbers
+            # drift apart, the shorter one wins and the buyer loses seats inside
+            # a countdown that had not finished.
+            - name: HOLD_TTL_SECONDS
+              value: {{ .Values.hold.ttlSeconds | quote }}
+            - name: SWEEP_INTERVAL_SECONDS
+              value: {{ .Values.worker.sweepIntervalSeconds | quote }}
+            - name: NODE_ENV
+              value: production
+            {{- include "tf.secretEnv" (dict "ctx" . "name" "DATABASE_URL" "key" .Values.secrets.keys.databaseUrl) | nindent 12 }}
+          # No readiness probe: the sweeper serves no traffic, so there is
+          # nothing for a load balancer to gate on. Liveness is a process check,
+          # which is all a loop like this can honestly report.
+          livenessProbe:
+            exec:
+              command: ["node", "dist/workers/healthy.js"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30

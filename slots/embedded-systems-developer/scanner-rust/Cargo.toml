@@ -1,0 +1,27 @@
+[package]
+name = "scanner"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.83"
+description = "TicketForge turnstile scanner — offline admission, durable queue, deferred sync"
+publish = false
+
+# No dependencies, on purpose. The device has 64 KiB of RAM, no network at build
+# time on the grading host, and a contract (contract/scanner/interface.yaml) that
+# specifies its own digest and its own file formats precisely enough that a JSON
+# crate would be more code than the thing it replaces. `cargo build --offline`
+# therefore works from a cold registry.
+
+[[bin]]
+name = "scanner"
+path = "src/main.rs"
+
+[profile.release]
+# Keep unwinding rather than panic=abort. A panic is how this slot's memory
+# safety becomes VISIBLE — it goes to stderr and gives a non-zero exit, which is
+# exactly what conformance/edge grades under SCAN-R14 — and panic=abort would
+# also strip the Rust panic machinery that contract/scanner/run-scenarios.sh
+# detects in the binary to confirm the mechanism is really there.
+panic = "unwind"
+debug = false
+overflow-checks = true

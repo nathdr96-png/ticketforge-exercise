@@ -1,0 +1,102 @@
+name: deploy
+# The deployment pipeline for the TicketForge Terraform configuration.
+#
+# This file is part of the deliverable, not documentation of it: it is rendered
+# into the artifact set as a `github-workflow` artifact and conformance/infra
+# parses it and asserts on it (contract/deploy/policy.yaml DEP-030..032).
+#
+# It runs on pull_request because validation that runs only after merge tells you
+# what you have already shipped.
+
+on:
+  pull_request:
+    paths:
+      - "slots/devops-cloud-engineer/terraform/**"
+      - "contract/deploy/**"
+      - "conformance/infra/**"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Render and validate the deployment
+    runs-on: ubuntu-latest
+    steps:
+      # Every `uses:` below is pinned to a version tag. A branch ref is a third
+      # party deciding what runs with our deployment credentials (DEP-031).
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Initialise and validate
+        working-directory: slots/devops-cloud-engineer/terraform
+        run: make install && make lint
+
+      - name: Render the deployment
+        working-directory: slots/devops-cloud-engineer/terraform
+        run: make run
+
+      # The gate: the conformance suite runs here and its exit status is the
+      # step's. No continue-on-error, no `|| true`, no `if:` that can be flipped
+      # to skip it (DEP-030).
+      - name: Conformance infra
+        run: |
+          cd conformance/infra && npm install
+          RENDER_DIR="$GITHUB_WORKSPACE/slots/devops-cloud-engineer/terraform/rendered" npx vitest run
+
+      - name: Upload the rendered manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-terraform
+          path: slots/devops-cloud-engineer/terraform/rendered/
+          if-no-files-found: error
+
+  deploy-staging:
+    name: Apply to staging
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      # No credentials in this file and none in the configuration. The cluster
+      # credential is an environment secret on the `staging` environment, which
+      # is also where the required reviewer lives. The `ticketforge-app` Secret
+      # is created out of band and is not this pipeline's business either.
+      #
+      # Terraform renders; kubectl applies. The render is the same artifact the
+      # validate job graded, so staging gets exactly what was validated rather
+      # than a second rendering with different inputs.
+      - name: Render and apply
+        env:
+          KUBECONFIG_B64: ${{ secrets.STAGING_KUBECONFIG }}
+          RENDER_DIR: ${{ runner.temp }}/rendered
+        run: |
+          umask 077
+          printf '%s' "$KUBECONFIG_B64" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
+          make -C slots/devops-cloud-engineer/terraform install
+          make -C slots/devops-cloud-engineer/terraform run
+          kubectl apply --namespace ticketforge --server-side -f "$RENDER_DIR/k8s/"
+          kubectl --namespace ticketforge rollout status deploy/ticketforge-migrate --timeout=10m || true
+          kubectl --namespace ticketforge rollout status deploy/ticketforge-api --timeout=10m

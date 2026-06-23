@@ -1,0 +1,50 @@
+server:
+  port: ${PORT:3000}
+  address: 0.0.0.0
+  error:
+    whitelabel:
+      enabled: false
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: ticketforge-java-spring
+  main:
+    banner-mode: off
+  # The canonical DDL in contract/schema.sql is the only source of truth for the schema.
+  # No JPA/Hibernate is on the classpath; this is belt-and-braces so nothing can ever
+  # auto-generate or validate a schema behind the contract's back.
+  jpa:
+    hibernate:
+      ddl-auto: none
+  sql:
+    init:
+      mode: never
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+  jackson:
+    # All timestamps are UTC ISO-8601 strings with a Z suffix — never epoch millis.
+    serialization:
+      write-dates-as-timestamps: false
+      write-date-timestamps-as-nanoseconds: false
+    time-zone: UTC
+    default-property-inclusion: always
+
+ticketforge:
+  jwt-secret: ${JWT_SECRET:ticketforge-dev-secret-change-me}
+  hold-ttl-seconds: ${HOLD_TTL_SECONDS:600}
+  fee-percent: ${FEE_PERCENT:5}
+  fee-fixed-cents: ${FEE_FIXED_CENTS:30}
+  hold-expiry-interval-ms: ${HOLD_EXPIRY_INTERVAL_MS:1000}
+  contract-dir: ${CONTRACT_DIR:}
+
+logging:
+  level:
+    root: ${LOG_LEVEL:info}
+    com.ticketforge: ${LOG_LEVEL:info}

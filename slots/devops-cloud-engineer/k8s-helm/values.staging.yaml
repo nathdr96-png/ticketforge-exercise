@@ -1,0 +1,19 @@
+# Staging overrides. Hosts and capacity only.
+#
+# Not a second copy of the chart's decisions: anything that is a correctness
+# property in values.yaml — the sweeper's replica count, the secret references,
+# the pinned tags — is deliberately absent here, because an environment file is
+# exactly where those get quietly relaxed "just for staging" and then promoted.
+
+ingress:
+  webHost: tickets.staging.ticketforge.test
+  apiHost: api.staging.ticketforge.test
+  tlsSecretName: ticketforge-staging-tls
+
+api:
+  replicas: 2
+  pdb:
+    minAvailable: 1
+
+web:
+  replicas: 2

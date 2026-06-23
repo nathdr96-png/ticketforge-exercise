@@ -1,0 +1,43 @@
+{{/*
+Both Services are ClusterIP. The API in particular: a LoadBalancer or NodePort on
+it would be a second front door straight past the ingress and whatever rate
+limiting and TLS termination sit there, and it is the kind of thing that gets
+added to debug one afternoon and then stays.
+
+`targetPort: http` is the container's own named port rather than a repeated
+number, so changing `api.port` cannot leave the Service routing to a port no
+container is listening on.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tf.fullname" . }}-api
+  labels:
+    {{- include "tf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "tf.selectorLabels" (dict "ctx" . "component" "api") | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tf.fullname" . }}-web
+  labels:
+    {{- include "tf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "tf.selectorLabels" (dict "ctx" . "component" "web") | nindent 4 }}

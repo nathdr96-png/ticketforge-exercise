@@ -1,0 +1,19 @@
+name: ticketforge_analytics
+version: "1.0.0"
+config-version: 2
+
+profile: ticketforge
+
+model-paths: ["models"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  ticketforge_analytics:
+    analytics:
+      # Views, not tables. The questions are reporting queries over a small
+      # operational database; materialising them as tables would add a staleness
+      # problem to answer a question that has none.
+      +materialized: view
+      +schema: null

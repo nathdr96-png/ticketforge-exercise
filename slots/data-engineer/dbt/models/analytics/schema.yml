@@ -1,0 +1,91 @@
+version: 2
+
+models:
+  - name: q1_revenue_by_event
+    description: Revenue by event, paid orders only. Contract question q1_revenue_by_event.
+    # The (event_id, currency) grain is asserted by tests/assert_q1_grain_is_unique.sql
+    # rather than by a dbt_utils macro, so this project needs no packages.
+    columns:
+      - name: event_id
+        tests: [not_null]
+      - name: currency
+        tests:
+          - not_null
+          - accepted_values: { values: ["USD", "EUR", "GBP"] }
+      - name: orders_count
+        tests: [not_null]
+      - name: net_cents
+        tests: [not_null]
+
+  - name: q2_daily_sales_utc
+    description: Daily sales bucketed in UTC. Contract question q2_daily_sales_utc.
+    columns:
+      - name: sales_day
+        tests: [not_null]
+      - name: event_id
+        tests: [not_null]
+      - name: currency
+        tests:
+          - not_null
+          - accepted_values: { values: ["USD", "EUR", "GBP"] }
+
+  - name: q3_hold_funnel_by_event
+    description: Hold-to-order funnel. Contract question q3_hold_funnel_by_event.
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: holds_created
+        tests: [not_null]
+      - name: conversion_bps
+        tests: [not_null]
+
+  - name: q4_seat_hold_history
+    description: Seat-level hold history. Contract question q4_seat_hold_history.
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: seats_ever_held
+        tests: [not_null]
+
+  - name: q5_top_buyers_by_currency
+    description: Top three buyers per currency. Contract question q5_top_buyers_by_currency.
+    columns:
+      - name: currency
+        tests: [not_null]
+      - name: rank
+        tests:
+          - not_null
+          - accepted_values: { values: [1, 2, 3], quote: false }
+      - name: buyer_id
+        tests: [not_null]
+      - name: email
+        tests: [not_null]
+
+  - name: q6_discount_effectiveness
+    description: Promo code effectiveness. Contract question q6_discount_effectiveness.
+    columns:
+      - name: code
+        tests: [not_null]
+      - name: percent_off
+        tests: [not_null]
+      # currency is deliberately nullable: a code nobody redeemed has no currency.
+
+  - name: q7_inventory_reconciliation
+    description: Seat map versus paid orders. Contract question q7_inventory_reconciliation.
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: seats_total
+        tests: [not_null]
+      - name: unreconciled_seats
+        tests: [not_null]
+
+  - name: q8_order_value_distribution
+    description: Order value distribution. Contract question q8_order_value_distribution.
+    columns:
+      - name: event_id
+        tests: [not_null]
+      - name: currency
+        tests: [not_null]
+      - name: avg_net_cents
+        tests: [not_null]

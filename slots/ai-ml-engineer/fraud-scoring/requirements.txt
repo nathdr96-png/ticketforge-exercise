@@ -1,0 +1,17 @@
+# Pinned, not floated.
+#
+# RISK-R07 says two runs must be byte-identical, and RISK-R12 says the bars were
+# measured against one exact dataset. A floating `scikit-learn>=1.5` makes the
+# second claim untrue the next time a minor release changes a default — it would
+# not break determinism within a run, but it would move the measured metric, and
+# then nobody can say whether the model changed or the library did.
+#
+# Upgrade deliberately: bump here, re-run `make run`, re-run conformance/ml, and
+# check the numbers in slots/ai-ml-engineer/fraud-scoring/README.md still describe reality.
+numpy==2.3.4
+pandas==2.3.3
+scikit-learn==1.7.2
+PyYAML==6.0.3
+
+# Test runner only. Not imported by anything under risk/.
+pytest==8.4.2

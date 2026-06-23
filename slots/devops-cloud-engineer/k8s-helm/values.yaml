@@ -1,0 +1,148 @@
+# TicketForge — default values.
+#
+# Everything an operator is expected to change lives here. Nothing in templates/
+# hard-codes an image tag, a replica count, a resource figure, a host name or a
+# port, and NOTHING anywhere in this slot holds a credential: see `secrets`
+# below.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# --------------------------------------------------------------------- images
+#
+# Pinned, every one of them. `latest` is forbidden by contract/deploy/policy.yaml
+# DEP-011 and the reason is rollback: there is no previous version to go back to
+# if the tag you deployed is the tag that moved.
+image:
+  registry: ghcr.io/ticketforge
+  pullPolicy: IfNotPresent
+  api:
+    repository: ticketforge-api
+    tag: "1.14.3"
+  web:
+    repository: ticketforge-web
+    tag: "1.14.3"
+  # The sweeper is the same artifact as the API with a different entrypoint, so
+  # it is deliberately the same tag. Two tags here would mean the sweeper and the
+  # API could disagree about what a hold is.
+  worker:
+    repository: ticketforge-api
+    tag: "1.14.3"
+
+imagePullSecrets: []
+
+# ---------------------------------------------------------------------- holds
+#
+# ONE source of truth for the hold TTL, read by the API (which advertises the
+# countdown to the buyer) and by the sweeper (which enforces it). Two numbers in
+# two places is how a sweeper ends up expiring holds the API still considers
+# live.
+hold:
+  ttlSeconds: 600
+
+# ------------------------------------------------------------------------ api
+api:
+  # >= 2 by contract (DEP-014): one replica makes every deploy and every node
+  # drain an outage.
+  replicas: 3
+  port: 3000
+  # GET /health is the readiness endpoint in contract/openapi.yaml. Not "/", not
+  # "/healthz".
+  healthPath: /health
+  resources:
+    requests:
+      cpu: 250m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      # INFRA-92: tightened after the autumn capacity review so we fit more API
+      # pods per node. Steady-state usage is well under this.
+      memory: 192Mi
+  pdb:
+    minAvailable: 2
+
+# ------------------------------------------------------------------------ web
+web:
+  replicas: 2
+  port: 8080
+  healthPath: /
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 192Mi
+  pdb:
+    minAvailable: 1
+
+# --------------------------------------------------------- hold-expiry worker
+#
+# A SINGLETON. Not a capacity decision: two sweepers racing the same expired hold
+# emit `hold.expired` twice (double-counting every outbox-derived report) or
+# release a seat a buyer has already re-held (overselling). `replicas: 1` on its
+# own is not enough, because a default rolling update runs the new pod alongside
+# the old one — hence the Recreate strategy in the template.
+worker:
+  replicas: 1
+  sweepIntervalSeconds: 15
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 250m
+      memory: 192Mi
+
+# -------------------------------------------------------------------- migrate
+migrate:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# -------------------------------------------------------------------- secrets
+#
+# Created OUT OF BAND — by the platform team, a sealed-secrets controller or an
+# external-secrets operator. This chart names the Secret and the keys inside it
+# and renders no material of its own, which is why there is no `password:` field
+# anywhere in this file to accidentally fill in. See DEP-016/DEP-017.
+secrets:
+  appSecretName: ticketforge-app
+  keys:
+    databaseUrl: DATABASE_URL
+    jwtSecret: JWT_SECRET
+
+# ------------------------------------------------------------------ redis
+#
+# Not a credential: an in-cluster address with no password. Holds are correct
+# without Redis at all (it is an accelerator), so this is configuration.
+redis:
+  url: redis://ticketforge-redis.ticketforge.svc.cluster.local:6379
+
+# ------------------------------------------------------------------- ingress
+ingress:
+  className: nginx
+  webHost: tickets.ticketforge.test
+  apiHost: api.ticketforge.test
+  tlsSecretName: ticketforge-tls
+  # The namespace the ingress controller runs in. The default-deny policy is
+  # opened for this namespace only.
+  controllerNamespace: ingress-nginx
+
+# ------------------------------------------------------------- network policy
+networkPolicy:
+  enabled: true
+  # Where Postgres lives, for the sweeper's and the API's egress allowance.
+  databaseNamespace: data
+
+serviceAccount:
+  name: ticketforge
+  # The workloads never call the Kubernetes API. Mounting a token they cannot
+  # use is a credential sitting in every pod for no reason.
+  automount: false

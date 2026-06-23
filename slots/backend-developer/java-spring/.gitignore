@@ -1,0 +1,20 @@
+# Build output
+target/
+*.jar
+*.class
+
+# Local Maven repository, if one is created inside the slot
+.m2/
+.mvn/wrapper/maven-wrapper.jar
+
+# Secrets / local config
+.env
+
+# Editors & OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Logs
+*.log

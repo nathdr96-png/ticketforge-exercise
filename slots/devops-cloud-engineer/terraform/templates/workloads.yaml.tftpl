@@ -1,0 +1,396 @@
+---
+# The TicketForge API. Readiness on GET /health — the readiness endpoint in
+# contract/openapi.yaml — on the port this container actually listens on. Both
+# halves matter: a probe on "/" reports a process that bound a socket, and a
+# probe on the wrong port reports nothing at all.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${name}-api
+  namespace: ${namespace}
+  labels:
+%{ for key, value in labels ~}
+    ${key}: "${value}"
+%{ endfor ~}
+    app.kubernetes.io/component: api
+spec:
+  replicas: ${api.replicas}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "${labels["app.kubernetes.io/name"]}"
+      app.kubernetes.io/instance: "${labels["app.kubernetes.io/instance"]}"
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+%{ for key, value in labels ~}
+        ${key}: "${value}"
+%{ endfor ~}
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: ${service_account.name}
+      automountServiceAccountToken: ${service_account.automount}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: "${labels["app.kubernetes.io/name"]}"
+              app.kubernetes.io/component: api
+      containers:
+        - name: api
+          image: ${images["api"]}
+          imagePullPolicy: ${pull_policy}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: ${api.port}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "${api.port}"
+            - name: NODE_ENV
+              value: production
+            # The countdown the API advertises to a buyer. The sweeper reads the
+            # SAME variable, from the same place.
+            - name: HOLD_TTL_SECONDS
+              value: "${hold_ttl}"
+            - name: REDIS_URL
+              value: "${redis_url}"
+            # Sensitive values arrive by reference, always. The Secret is
+            # created out of band; this configuration only names it.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ${app_secret}
+                  key: ${secret_keys.database_url}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ${app_secret}
+                  key: ${secret_keys.jwt_secret}
+          readinessProbe:
+            httpGet:
+              path: ${api.health_path}
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: ${api.health_path}
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 3
+            # Deliberately slacker than readiness: a slow dependency should take
+            # a pod out of the load balancer, not restart it.
+            failureThreshold: 6
+          startupProbe:
+            httpGet:
+              path: ${api.health_path}
+              port: http
+            periodSeconds: 3
+            failureThreshold: 30
+          resources:
+            requests:
+              cpu: ${api.resources.requests.cpu}
+              memory: ${api.resources.requests.memory}
+            limits:
+              cpu: "${api.resources.limits.cpu}"
+              memory: ${api.resources.limits.memory}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30
+---
+# The built web app as static files. It holds no credential and talks to the API
+# through the ingress like any other client, so it gets no database URL and no
+# JWT secret — the least-privilege version of "the frontend needs the backend".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${name}-web
+  namespace: ${namespace}
+  labels:
+%{ for key, value in labels ~}
+    ${key}: "${value}"
+%{ endfor ~}
+    app.kubernetes.io/component: web
+spec:
+  replicas: ${web.replicas}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "${labels["app.kubernetes.io/name"]}"
+      app.kubernetes.io/instance: "${labels["app.kubernetes.io/instance"]}"
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+%{ for key, value in labels ~}
+        ${key}: "${value}"
+%{ endfor ~}
+        app.kubernetes.io/component: web
+    spec:
+      serviceAccountName: ${service_account.name}
+      automountServiceAccountToken: ${service_account.automount}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: ${images["web"]}
+          imagePullPolicy: ${pull_policy}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: ${web.port}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "${web.port}"
+          readinessProbe:
+            httpGet:
+              path: ${web.health_path}
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: ${web.health_path}
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: ${web.resources.requests.cpu}
+              memory: ${web.resources.requests.memory}
+            limits:
+              cpu: ${web.resources.limits.cpu}
+              memory: ${web.resources.limits.memory}
+          volumeMounts:
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+      volumes:
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+      terminationGracePeriodSeconds: 15
+---
+# The hold-expiry sweeper.
+#
+# The only workload here whose replica count is a correctness property. It
+# expires holds past their TTL, returns their seats to the pool and writes one
+# `hold.expired` row to the outbox per hold. Run two and you get either a
+# duplicated outbox event — which double-counts in every report built on it,
+# including the data family's q4_seat_hold_history — or a seat released a second
+# time after a buyer has already re-held it, which oversells.
+#
+# `replicas: 1` is necessary and not sufficient. A default rolling update brings
+# the replacement pod up BEFORE the old pod goes down, so every deploy would be
+# a window with two sweepers in it. `type: Recreate` closes that window: holds
+# expire a few seconds late during a deploy instead of twice. Late is
+# recoverable; twice is not.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${name}-hold-expiry-worker
+  namespace: ${namespace}
+  labels:
+%{ for key, value in labels ~}
+    ${key}: "${value}"
+%{ endfor ~}
+    app.kubernetes.io/component: hold-expiry-worker
+  annotations:
+    ticketforge.io/singleton-mechanism: >-
+      Recreate rollout strategy with replicas=1: the outgoing pod is fully
+      terminated before the incoming pod starts, so at most one sweeper exists
+      at any instant.
+spec:
+  replicas: ${worker.replicas}
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "${labels["app.kubernetes.io/name"]}"
+      app.kubernetes.io/instance: "${labels["app.kubernetes.io/instance"]}"
+      app.kubernetes.io/component: hold-expiry-worker
+  template:
+    metadata:
+      labels:
+%{ for key, value in labels ~}
+        ${key}: "${value}"
+%{ endfor ~}
+        app.kubernetes.io/component: hold-expiry-worker
+    spec:
+      serviceAccountName: ${service_account.name}
+      automountServiceAccountToken: ${service_account.automount}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hold-expiry-worker
+          image: ${images["worker"]}
+          imagePullPolicy: ${pull_policy}
+          command: ["node", "dist/workers/hold-expiry.js"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # The SAME value the API advertises to buyers. If these two numbers
+            # drift apart the shorter one wins, and seats are swept out from
+            # under buyers still inside the countdown the API promised them.
+            - name: HOLD_TTL_SECONDS
+              value: "${hold_ttl}"
+            - name: SWEEP_INTERVAL_SECONDS
+              value: "${worker.sweep_interval_seconds}"
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ${app_secret}
+                  key: ${secret_keys.database_url}
+          # No readiness probe: the sweeper serves no traffic, so there is
+          # nothing for a load balancer to gate on. Liveness is a process check,
+          # which is all a loop like this can honestly report.
+          livenessProbe:
+            exec:
+              command: ["node", "dist/workers/healthy.js"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: ${worker.resources.requests.cpu}
+              memory: ${worker.resources.requests.memory}
+            limits:
+              cpu: ${worker.resources.limits.cpu}
+              memory: ${worker.resources.limits.memory}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30
+---
+# Schema migration. restartPolicy Never with an explicit backoffLimit, because
+# the default for a failed migration is to retry forever — holding locks against
+# a live database while the API queues behind them.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${name}-migrate
+  namespace: ${namespace}
+  labels:
+%{ for key, value in labels ~}
+    ${key}: "${value}"
+%{ endfor ~}
+    app.kubernetes.io/component: migrate
+  annotations:
+    ticketforge.io/run-before: api
+spec:
+  backoffLimit: ${migrate.backoff_limit}
+  activeDeadlineSeconds: ${migrate.active_deadline_seconds}
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+%{ for key, value in labels ~}
+        ${key}: "${value}"
+%{ endfor ~}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: ${service_account.name}
+      automountServiceAccountToken: ${service_account.automount}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: ${images["api"]}
+          imagePullPolicy: ${pull_policy}
+          command: ["node", "dist/db/migrate.js"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ${app_secret}
+                  key: ${secret_keys.database_url}
+          resources:
+            requests:
+              cpu: ${migrate.resources.requests.cpu}
+              memory: ${migrate.resources.requests.memory}
+            limits:
+              cpu: ${migrate.resources.limits.cpu}
+              memory: ${migrate.resources.limits.memory}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

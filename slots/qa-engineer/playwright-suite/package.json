@@ -1,0 +1,21 @@
+{
+  "name": "@ticketforge/qa-playwright-suite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TicketForge QA slot — black-box API/E2E regression suite graded by mutation score",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:verbose": "vitest run --reporter=verbose",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  }
+}

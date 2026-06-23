@@ -1,0 +1,101 @@
+---
+# Both Services are ClusterIP. The API in particular: a LoadBalancer or NodePort
+# on it would be a second, unprotected front door straight past the ingress and
+# whatever rate limiting and TLS termination sit there, and it is the kind of
+# thing that gets added to debug one afternoon and then stays.
+#
+# `targetPort: http` is the container's own named port rather than a repeated
+# number, so changing api.port cannot leave the Service routing to a port no
+# container is listening on.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${name}-api
+  namespace: ${namespace}
+  labels:
+%{ for key, value in labels ~}
+    ${key}: "${value}"
+%{ endfor ~}
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: "${labels["app.kubernetes.io/name"]}"
+    app.kubernetes.io/instance: "${labels["app.kubernetes.io/instance"]}"
+    app.kubernetes.io/component: api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${name}-web
+  namespace: ${namespace}
+  labels:
+%{ for key, value in labels ~}
+    ${key}: "${value}"
+%{ endfor ~}
+    app.kubernetes.io/component: web
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: "${labels["app.kubernetes.io/name"]}"
+    app.kubernetes.io/instance: "${labels["app.kubernetes.io/instance"]}"
+    app.kubernetes.io/component: web
+---
+# The one externally reachable object. Two hosts, both TLS, both routed to
+# ClusterIP Services — so there is exactly one place where request limits, TLS
+# and WAF rules have to be configured, and exactly one place to look when
+# something from outside is getting in.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+  labels:
+%{ for key, value in labels ~}
+    ${key}: "${value}"
+%{ endfor ~}
+    app.kubernetes.io/component: ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+    # Checkout is idempotent (Idempotency-Key in contract/openapi.yaml) but a
+    # proxy-level retry still turns one buyer's click into two POSTs against a
+    # seat hold. Let the client retry; the ingress must not.
+    nginx.ingress.kubernetes.io/proxy-next-upstream: "off"
+spec:
+  ingressClassName: ${ingress.class_name}
+  tls:
+    - hosts:
+        - ${ingress.web_host}
+        - ${ingress.api_host}
+      secretName: ${ingress.tls_secret_name}
+  rules:
+    - host: ${ingress.web_host}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${name}-web
+                port:
+                  name: http
+    - host: ${ingress.api_host}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${name}-api
+                port:
+                  name: http

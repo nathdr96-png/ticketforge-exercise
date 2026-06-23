@@ -1,0 +1,56 @@
+---
+# One service account, no role bindings, no mounted token. None of these
+# workloads calls the Kubernetes API, and a token that is mounted but unused is
+# a credential sitting in every pod for the benefit of nobody.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${service_account.name}
+  namespace: ${namespace}
+  labels:
+%{ for key, value in labels ~}
+    ${key}: "${value}"
+%{ endfor ~}
+    app.kubernetes.io/component: rbac
+automountServiceAccountToken: ${service_account.automount}
+---
+# Disruption budgets, so a node drain cannot take the whole of either public
+# workload at once. The API's minAvailable is below its replica count on
+# purpose: a budget equal to the replica count blocks every voluntary eviction
+# forever, which is how a cluster upgrade ends up stuck behind the thing that
+# was meant to make it safe.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ${name}-api
+  namespace: ${namespace}
+  labels:
+%{ for key, value in labels ~}
+    ${key}: "${value}"
+%{ endfor ~}
+    app.kubernetes.io/component: api-pdb
+spec:
+  minAvailable: ${api.pdb_min_available}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "${labels["app.kubernetes.io/name"]}"
+      app.kubernetes.io/instance: "${labels["app.kubernetes.io/instance"]}"
+      app.kubernetes.io/component: api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ${name}-web
+  namespace: ${namespace}
+  labels:
+%{ for key, value in labels ~}
+    ${key}: "${value}"
+%{ endfor ~}
+    app.kubernetes.io/component: web-pdb
+spec:
+  minAvailable: ${web.pdb_min_available}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "${labels["app.kubernetes.io/name"]}"
+      app.kubernetes.io/instance: "${labels["app.kubernetes.io/instance"]}"
+      app.kubernetes.io/component: web

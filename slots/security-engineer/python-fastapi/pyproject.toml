@@ -1,0 +1,20 @@
+[project]
+name = "ticketforge-backend-python-fastapi"
+version = "1.0.0"
+description = "TicketForge backend slot — Python + FastAPI"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+# UP017: datetime.UTC exists only on 3.11+; datetime.timezone.utc is kept for
+# readability alongside the `import datetime as dt` convention used throughout.
+ignore = ["B008", "UP017"]
