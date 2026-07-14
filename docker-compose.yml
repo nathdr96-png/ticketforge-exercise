@@ -1,0 +1,34 @@
+# Optional local services. Nothing here is required: any PostgreSQL 16 you can
+# create tables in works — point DATABASE_URL at it.
+#
+#   docker compose up -d postgres   # postgres://ticketforge:ticketforge@localhost:5432/ticketforge
+#   docker compose up -d mock       # stateless mock of contract/openapi.yaml on :4010
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ticketforge
+      POSTGRES_PASSWORD: ticketforge
+      POSTGRES_DB: ticketforge
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketforge -d ticketforge"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - tf_pg:/var/lib/postgresql/data
+
+  # Generated from the contract, so it is always in step with it — but it holds
+  # no state: seat holds and checkout need a real API.
+  mock:
+    image: stoplight/prism:5
+    command: ["mock", "-h", "0.0.0.0", "-p", "4010", "/contract/openapi.yaml"]
+    volumes:
+      - ./contract:/contract:ro
+    ports:
+      - "4010:4010"
+
+volumes:
+  tf_pg:

@@ -1,0 +1,29 @@
+# Dependencies and build output
+node_modules/
+.venv/
+__pycache__/
+.pytest_cache/
+dist/
+build/
+target/
+coverage/
+test-results/
+playwright-report/
+
+# Local configuration — copy .env.example in your slot
+.env
+
+# Logs. The scanner scenarios' initial state is made of .log files on purpose.
+*.log
+!contract/scanner/scenarios/*/initial-state/*.log
+
+# What `make run` writes. It is regenerated on every run.
+slots/*/*/results/
+slots/*/*/rendered/
+slots/*/*/.terraform/
+slots/*/*/terraform.tfstate*
+slots/*/*/out/
+slots/*/*/predictions/
+
+.DS_Store
+*.zip
